@@ -205,10 +205,14 @@ function TopNavbar() {
           <nav className='flex items-center justify-between h-14 px-3'>
             {/* Left: Logo */}
             <div className='flex items-center gap-2 min-w-0'>
-              {/* Enabled prefetching to match competitor's instant navigation speed. */}
+              {/* 
+                禁用 Next.js 原生 prefetch - 使用 UnifiedCache 系统替代
+                原因：我们现在有更高级的多级缓存策略，不需要框架层面的预加载
+                参考：LunaTV 竞品分析 - Cache-First 架构
+              */}
               <FastLink
                 href='/'
-                prefetch={true}
+                prefetch={false}
                 useTransitionNav
                 onClick={handleTabClick('home')}
                 className='shrink-0 select-none hover:opacity-90 transition-opacity'
@@ -227,11 +231,11 @@ function TopNavbar() {
                 // 这是"乐观 UI"的核心：点击即变色，不等 URL
                 const active = activeTabKey === item.key;
                 return (
-                  // Enabled prefetching to match competitor's instant navigation speed.
+                  // 禁用 Next.js prefetch，使用 UnifiedCache 缓存数据
                   <FastLink
                     key={item.key}
                     href={item.href}
-                    prefetch={true}
+                    prefetch={false}
                     useTransitionNav
                     onClick={handleTabClick(item.key)}
                     className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm hover:opacity-90 transition-all glass-chip chip-glow chip-theme ${item.chip} ${
