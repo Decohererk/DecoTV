@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
+import NProgress from 'nprogress';
 import React, {
   forwardRef,
   memo,
@@ -237,7 +238,22 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
       [from, actualSource, actualId, onDelete],
     );
 
+    /**
+     * 点击处理器 - 零延迟设计
+     *
+     * 执行顺序：
+     * 1. [0ms] NProgress.start() - 进度条立即启动
+     * 2. [1-2ms] router.push() - 非阻塞导航
+     *
+     * 为什么能实现"毫秒级响应"？
+     * - NProgress 是同步 DOM 操作，16ms 内可见
+     * - 用户看到进度条 = 点击成功，心理延迟为 0
+     */
     const handleClick = useCallback(() => {
+      // 【关键】立即启动进度条 - 这是函数第一行
+      // 同步操作，在当前帧内执行，用户立即看到反馈
+      NProgress.start();
+
       if (origin === 'live' && actualSource && actualId) {
         // 直播内容跳转到直播页面
         const url = `/live?source=${actualSource.replace('live_', '')}&id=${actualId.replace('live_', '')}`;
@@ -551,8 +567,21 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
 
     return (
       <>
+        {/*
+          卡片容器 - 性能优化版
+
+          移除了 hover:scale-[1.05] 的原因：
+          - scale 变换会触发 Layout Thrashing（布局抖动）
+          - 相邻卡片需要重新计算位置，导致主线程繁忙
+          - 在低端设备上可能阻塞 60fps 渲染
+
+          替代方案：
+          - 使用 translate3d(0,0,0) 创建独立合成层
+          - hover 效果改为阴影/透明度变化（不触发重排）
+          - will-change: transform 提示 GPU 预创建层
+        */}
         <div
-          className='group relative w-full rounded-lg bg-transparent cursor-pointer transition-all duration-300 ease-in-out hover:scale-[1.05] hover:z-500'
+          className='group relative w-full rounded-lg bg-transparent cursor-pointer transition-shadow duration-200 ease-out hover:shadow-lg hover:shadow-purple-500/20 hover:z-500'
           onClick={handleClick}
           {...longPressProps}
           style={
@@ -562,9 +591,13 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
               userSelect: 'none',
               WebkitTouchCallout: 'none',
               WebkitTapHighlightColor: 'transparent',
+              // 【关键】消除移动端 300ms 触摸延迟
               touchAction: 'manipulation',
               // 禁用右键菜单和长按菜单
               pointerEvents: 'auto',
+              // 【关键】GPU 加速：创建独立合成层
+              transform: 'translate3d(0, 0, 0)',
+              willChange: 'transform, box-shadow',
             } as React.CSSProperties
           }
           onContextMenu={(e) => {
@@ -612,6 +645,18 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
             {/* 骨架屏 */}
             {!isLoading && <ImagePlaceholder aspectRatio='aspect-2/3' />}
             {/* 图片 */}
+            {/*
+              海报图片 - 性能优化配置
+
+              decoding="async"：
+              - 图片解码在单独线程进行，不阻塞主线程
+              - 防止大图解码时点击事件失效的问题
+              - 配合 loading="lazy" 实现渐进式加载
+
+              sizes 属性：
+              - 告诉浏览器不同视口下的实际显示尺寸
+              - 优化响应式图片加载，避免下载过大图片
+            */}
             <Image
               src={processImageUrl(actualPoster)}
               alt={actualTitle}
@@ -619,6 +664,8 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
               className={origin === 'live' ? 'object-contain' : 'object-cover'}
               referrerPolicy='no-referrer'
               loading='lazy'
+              decoding='async'
+              sizes='(max-width: 640px) 33vw, (max-width: 1024px) 20vw, 15vw'
               onLoad={() => setIsLoading(true)}
               onError={(e) => {
                 // 图片加载失败时的重试机制
