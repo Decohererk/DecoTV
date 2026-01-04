@@ -579,9 +579,15 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
           - 使用 translate3d(0,0,0) 创建独立合成层
           - hover 效果改为阴影/透明度变化（不触发重排）
           - will-change: transform 提示 GPU 预创建层
+
+          【新增】移动端点击反馈 (iOS 风格按压感)：
+          - active:scale-95: 手指按下时卡片轻微缩小，提供物理反馈
+          - active:opacity-80: 同时变暗，增强"确认感"
+          - transition-transform duration-150: 快速平滑的动画过渡
+          - 解决用户反馈"点击无反应"的体验问题
         */}
         <div
-          className='group relative w-full rounded-lg bg-transparent cursor-pointer transition-shadow duration-200 ease-out hover:shadow-lg hover:shadow-purple-500/20 hover:z-500'
+          className='group relative w-full rounded-lg bg-transparent cursor-pointer transition-all duration-150 ease-out hover:shadow-lg hover:shadow-purple-500/20 hover:z-500 active:scale-95 active:opacity-80'
           onClick={handleClick}
           {...longPressProps}
           style={

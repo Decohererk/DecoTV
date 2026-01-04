@@ -202,12 +202,15 @@ const FastLink = forwardRef<HTMLAnchorElement, FastLinkProps>(
       );
     }
 
-    // 默认使用 next/link，禁用 prefetch 避免资源抢占
+    // 默认使用 next/link
+    // 【重要】启用 prefetch（默认为 true）：
+    // - 当用户鼠标悬停在链接上时，浏览器会在后台静默下载页面数据
+    // - 等用户真的点击时，数据已经在本地，页面会 0 秒瞬开
+    // - 如果您之前禁用了 prefetch，现在可以安全地重新启用
     return (
       <Link
         ref={ref}
         href={href}
-        prefetch={false}
         onClick={handleClick}
         className={className}
         style={mergedStyles}
