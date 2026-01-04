@@ -1,8 +1,5 @@
-// lib/filter.ts  (新建文件：统一敏感内容过滤逻辑)
-
-import { yellowWords } from './yellow';
-
-export const blockedWords = [
+// Modified: filter.ts (new file)
+export const bannedWords: string[] = [
   '伦理片',
   '福利',
   '里番动漫',
@@ -35,43 +32,4 @@ export const blockedWords = [
   // 新加入 
   '罪恶之渊',  
   // 可继续添加更多隐晦代称
-] as const;
-
-/**
- * 统一过滤函数：同时屏蔽成人内容 + 指定违禁关键词（如赌博相关）
- */
-export function filterSensitiveContent(
-  results: any[],
-  shouldFilter: boolean,
-  apiSites: any[] = []
-): any[] {
-  if (!shouldFilter) return results;
-
-  return results.filter((result) => {
-    const typeName = (result.type_name || '').toLowerCase();
-    const title = (result.title || '').toLowerCase();
-    const sourceKey = result.source_key || result.source || '';
-
-    // 1. 整站成人源屏蔽
-    const source = apiSites.find((s: any) => s.key === sourceKey);
-    if (source?.is_adult) {
-      return false;
-    }
-
-    // 2. 分类包含成人敏感词
-    if (yellowWords.some((word: string) => typeName.includes(word.toLowerCase()))) {
-      return false;
-    }
-
-    // 3. 标题或分类包含赌博等违禁词
-    if (
-      blockedWords.some(
-        (word) => title.includes(word.toLowerCase()) || typeName.includes(word.toLowerCase())
-      )
-    ) {
-      return false;
-    }
-
-    return true;
-  });
-}
+];
