@@ -103,8 +103,9 @@ function VirtualGridInner<T extends VirtualGridItem>({
   );
   useImagePreload(imageUrls, priorityCount);
 
-  // 计算行数 (如果有更多数据，额外加一行用于显示 loading)
-  const dataRowCount = Math.ceil(items.length / columnCount);
+  // Add extra row for loading spinner to trigger infinite scroll
+  // 计算行数 (如果有更多数据，额外加一行用于显示 loading 和触发加载)
+  const dataRowCount = Math.ceil(items.length / columnCount) || 1;
   const rowCount = hasMore ? dataRowCount + 1 : dataRowCount;
 
   // 计算实际容器高度
@@ -117,14 +118,14 @@ function VirtualGridInner<T extends VirtualGridItem>({
   const gridWidth = columnCount * itemWidth + (columnCount - 1) * gap;
 
   // Restored infinite scrolling within VirtualGrid implementation
-  // 触底检测回调
+  // 触底检测回调 - 放宽阈值到最后 3 行
   const handleCellsRendered = useCallback(
     (info: { visibleRowStopIndex: number }) => {
       const { visibleRowStopIndex } = info;
 
-      // 如果滚动到最后 2 行，且有更多数据，且没有正在加载，且没有重复触发
+      // 如果滚动到最后 3 行，且有更多数据，且没有正在加载，且没有重复触发
       if (
-        visibleRowStopIndex >= dataRowCount - 2 &&
+        visibleRowStopIndex >= rowCount - 3 &&
         hasMore &&
         !isLoadingMore &&
         !loadMoreTriggeredRef.current &&
@@ -134,7 +135,7 @@ function VirtualGridInner<T extends VirtualGridItem>({
         onLoadMore();
       }
     },
-    [dataRowCount, hasMore, isLoadingMore, onLoadMore],
+    [rowCount, hasMore, isLoadingMore, onLoadMore],
   );
 
   // 当加载完成后重置触发标记
@@ -154,7 +155,7 @@ function VirtualGridInner<T extends VirtualGridItem>({
       const { columnIndex, rowIndex, style } = props;
       const index = rowIndex * columnCount + columnIndex;
 
-      // Loading 行 - 显示加载指示器
+      // Loading 行 - 始终显示加载指示器（作为触发区域）
       if (rowIndex >= dataRowCount) {
         // 只在第一列显示 loading，其他列返回空
         if (columnIndex === 0) {
@@ -168,14 +169,12 @@ function VirtualGridInner<T extends VirtualGridItem>({
           };
           return (
             <div style={loadingStyle}>
-              {isLoadingMore && (
-                <div className='flex items-center gap-2'>
-                  <div className='animate-spin rounded-full h-6 w-6 border-b-2 border-green-500'></div>
-                  <span className='text-gray-600 dark:text-gray-400'>
-                    加载中...
-                  </span>
-                </div>
-              )}
+              <div className='flex items-center gap-2'>
+                <div className='animate-spin rounded-full h-6 w-6 border-b-2 border-green-500'></div>
+                <span className='text-gray-600 dark:text-gray-400'>
+                  {isLoadingMore ? '加载中...' : '下滑加载更多'}
+                </span>
+              </div>
             </div>
           );
         }
