@@ -66,6 +66,12 @@ interface FastLinkProps extends Omit<
    * - false: 不触发进度条（适用于模态框内链接等场景）
    */
   showProgress?: boolean;
+  /**
+   * 预加载模式 - 实现竞品级别的瞬开速度
+   * - true (默认): 链接进入视口时自动预加载，点击时 0ms 延迟
+   * - false: 禁用预加载（仅在网络条件极差时使用）
+   */
+  prefetch?: boolean;
 }
 
 /**
@@ -97,6 +103,7 @@ const FastLink = forwardRef<HTMLAnchorElement, FastLinkProps>(
       forceRefresh = false,
       useTransitionNav = false,
       showProgress = true,
+      prefetch = true, // 默认启用预加载，实现竞品级别瞬开速度
       onClick,
       className,
       style,
@@ -115,6 +122,24 @@ const FastLink = forwardRef<HTMLAnchorElement, FastLinkProps>(
       () => ({ ...ZERO_LATENCY_STYLES, ...style }),
       [style],
     );
+
+    /**
+     * 触摸预热处理器 - 比点击早 100ms 触发
+     *
+     * 移动端优化：
+     * - onTouchStart 在手指触碰屏幕的瞬间触发
+     * - 比 onClick 早约 100ms（等待手指抬起）
+     * - 提前启动进度条，让用户感知"已响应"
+     */
+    const handleTouchStart = useCallback(() => {
+      const isInternalLink =
+        !href.startsWith('http://') && !href.startsWith('https://');
+
+      if (isInternalLink && showProgress) {
+        // 触摸即启动进度条 - 比点击早 100ms
+        NProgress.start();
+      }
+    }, [href, showProgress]);
 
     /**
      * 核心点击处理器 - 零延迟设计
@@ -193,6 +218,7 @@ const FastLink = forwardRef<HTMLAnchorElement, FastLinkProps>(
           ref={ref}
           href={href}
           onClick={handleClick}
+          onTouchStart={handleTouchStart}
           className={className}
           style={mergedStyles}
           {...rest}
@@ -203,15 +229,18 @@ const FastLink = forwardRef<HTMLAnchorElement, FastLinkProps>(
     }
 
     // 默认使用 next/link
-    // 【重要】启用 prefetch（默认为 true）：
-    // - 当用户鼠标悬停在链接上时，浏览器会在后台静默下载页面数据
-    // - 等用户真的点击时，数据已经在本地，页面会 0 秒瞬开
-    // - 如果您之前禁用了 prefetch，现在可以安全地重新启用
+    // 【重要】启用 prefetch 实现竞品级别瞬开速度：
+    // - 当链接进入视口时，Next.js 会自动预加载 RSC Payload
+    // - 鼠标悬停时进一步加载页面数据
+    // - 点击时数据已在本地，页面 0ms 瞬开，彻底消除绿色加载圈
+    // Enabled prefetching to match competitor's instant navigation speed.
     return (
       <Link
         ref={ref}
         href={href}
+        prefetch={prefetch}
         onClick={handleClick}
+        onTouchStart={handleTouchStart}
         className={className}
         style={mergedStyles}
         {...rest}
