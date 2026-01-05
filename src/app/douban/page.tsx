@@ -31,8 +31,11 @@ import VirtualGrid from '@/components/VirtualGrid';
 
 function DoubanPageClient() {
   const searchParams = useSearchParams();
+
+
   const [doubanData, setDoubanData] = useState<DoubanItem[]>([]);
   const [loading, setLoading] = useState(false);
+
   const [selectorsReady, setSelectorsReady] = useState(false);
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -204,25 +207,35 @@ function DoubanPageClient() {
 
   const getRequestParams = useCallback(
     (pageStart: number) => {
+
+
       if (type === 'tv' || type === 'show') {
         return {
           kind: 'tv' as const,
           category: type,
-          type: secondarySelection,
+          type: safeType,
           pageLimit: 50,
           pageStart,
         };
       }
 
+
+
       return {
         kind: type as 'tv' | 'movie',
-        category: primarySelection,
-        type: secondarySelection,
+        category: safeCategory,
+        type: safeType,
         pageLimit: 50,
         pageStart,
       };
     },
-    [type, primarySelection, secondarySelection],
+    [
+      type,
+      primarySelection,
+      secondarySelection,
+      CATEGORY_MAPPING,
+      TYPE_MAPPING,
+    ],
   );
 
   const loadInitialData = useCallback(async () => {
@@ -336,6 +349,8 @@ function DoubanPageClient() {
         const currentSnapshot = { ...currentParamsRef.current };
         if (isSnapshotEqual(requestSnapshot, currentSnapshot)) {
           setDoubanData(data.list);
+          setHasMore(data.list.length >= 50); // 如果返回满页，可能还有更多
+          setCurrentPage(0); // 重置页码
           setLoading(false);
 
           if (data.list.length > 0) {
@@ -358,10 +373,15 @@ function DoubanPageClient() {
     selectedWeekday,
     getRequestParams,
     customCategories,
+    isSnapshotEqual,
   ]);
+
+
 
   useEffect(() => {
     if (!selectorsReady) return;
+
+
 
     if (debounceTimeoutRef.current) {
       clearTimeout(debounceTimeoutRef.current);
@@ -534,9 +554,13 @@ function DoubanPageClient() {
               ))}
             </div>
           ) : (
+
             <VirtualGrid
               items={doubanData}
               priorityCount={12}
+              hasMore={hasMore}
+              isLoadingMore={isLoadingMore}
+              onLoadMore={handleLoadMore}
               renderItem={(item, priority, index) => (
                 <div key={`${item.title}-${index}`} className='w-full h-full'>
                   <VideoCard
@@ -555,6 +579,11 @@ function DoubanPageClient() {
                 </div>
               )}
             />
+          )}
+
+          {/* 没有更多数据提示 */}
+          {!hasMore && doubanData.length > 0 && currentSource === 'auto' && (
+            <div className='text-center text-gray-500 py-4'>已加载全部内容</div>
           )}
         </div>
       </div>

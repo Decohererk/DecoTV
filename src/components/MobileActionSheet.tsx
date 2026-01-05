@@ -164,7 +164,7 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({
   // 使用 Portal 渲染到 body，彻底脱离父级 overflow 限制
   return createPortal(
     <div
-      className='fixed inset-0 z-[9999] flex items-end justify-center'
+      className='fixed inset-0 z-9999 flex items-end justify-center'
       onTouchMove={(e) => {
         // 阻止最外层容器的触摸移动，防止背景滚动
         e.preventDefault();
@@ -217,7 +217,7 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({
         <div className='flex items-center justify-between p-4 border-b border-gray-100 dark:border-gray-800'>
           <div className='flex items-center gap-3 flex-1 min-w-0'>
             {poster && (
-              <div className='relative w-12 h-16 rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800 flex-shrink-0'>
+              <div className='relative w-12 h-16 rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800 shrink-0'>
                 <Image
                   src={poster}
                   alt={title}
@@ -235,7 +235,7 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({
                   {title}
                 </h3>
                 {sourceName && (
-                  <span className='flex-shrink-0 text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800'>
+                  <span className='shrink-0 text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800'>
                     {origin === 'live' && (
                       <Radio
                         size={12}
@@ -281,7 +281,7 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({
                 style={{ willChange: 'transform, background-color' }}
               >
                 {/* 图标 - 使用线条风格 */}
-                <div className='w-6 h-6 flex items-center justify-center flex-shrink-0'>
+                <div className='w-6 h-6 flex items-center justify-center shrink-0'>
                   <span
                     className={`transition-colors duration-150 ${
                       action.disabled
@@ -344,7 +344,7 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({
                     key={index}
                     className='flex items-center gap-2 py-2 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50/30 dark:bg-gray-800/30'
                   >
-                    <div className='w-1 h-1 bg-gray-400 dark:bg-gray-500 rounded-full flex-shrink-0' />
+                    <div className='w-1 h-1 bg-gray-400 dark:bg-gray-500 rounded-full shrink-0' />
                     <span className='text-xs text-gray-600 dark:text-gray-400 truncate'>
                       {source}
                     </span>
