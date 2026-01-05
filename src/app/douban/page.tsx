@@ -24,30 +24,18 @@ import { useImagePreload } from '@/hooks/useImagePreload';
 
 import DoubanCardSkeleton from '@/components/DoubanCardSkeleton';
 import DoubanCustomSelector from '@/components/DoubanCustomSelector';
-import DoubanSelector from '@/components/DoubanSelector';
+import DoubanSelector, { SourceCategory } from '@/components/DoubanSelector';
 import PageLayout from '@/components/PageLayout';
 import VideoCard from '@/components/VideoCard';
 import VirtualGrid from '@/components/VirtualGrid';
 
 function DoubanPageClient() {
   const searchParams = useSearchParams();
-  // FIX: Manual append logic for reliable infinite scrolling
-  // 分离豆瓣数据和源数据的状态管理
   const [doubanData, setDoubanData] = useState<DoubanItem[]>([]);
-  const [sourceData, setSourceData] = useState<DoubanItem[]>([]);
-
-  // 豆瓣模式加载状态
   const [loading, setLoading] = useState(false);
-
-  // 源模式分页状态
-  const [sourceLoadingMore, setSourceLoadingMore] = useState(false);
-  const [sourceHasMore, setSourceHasMore] = useState(false);
-  const [sourcePage, setSourcePage] = useState(1);
-
   const [selectorsReady, setSelectorsReady] = useState(false);
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // 用于存储最新参数值的 refs
   const currentParamsRef = useRef({
     type: '',
     primarySelection: '',
@@ -58,12 +46,10 @@ function DoubanPageClient() {
 
   const type = searchParams.get('type') || 'movie';
 
-  // 获取 runtimeConfig 中的自定义分类数据
   const [customCategories, setCustomCategories] = useState<
     Array<{ name: string; type: 'movie' | 'tv'; query: string }>
   >([]);
 
-  // 选择器状态 - 完全独立，不依赖URL参数
   const [primarySelection, setPrimarySelection] = useState<string>(() => {
     if (type === 'movie') return '热门';
     if (type === 'tv' || type === 'show') return '最近热门';
@@ -77,7 +63,6 @@ function DoubanPageClient() {
     return '全部';
   });
 
-  // MultiLevelSelector 状态
   const [multiLevelValues, setMultiLevelValues] = useState<
     Record<string, string>
   >({
@@ -89,12 +74,8 @@ function DoubanPageClient() {
     sort: 'T',
   });
 
-  // 星期选择器状态
   const [selectedWeekday, setSelectedWeekday] = useState<string>('');
 
-
-  // 【性能优化】预加载首屏图片（只用 doubanData）
- main
   const imageUrls = useMemo(
     () =>
       doubanData
@@ -105,7 +86,6 @@ function DoubanPageClient() {
   );
   useImagePreload(imageUrls, 12);
 
-  // 获取自定义分类数据
   useEffect(() => {
     const runtimeConfig = (window as any).RUNTIME_CONFIG;
     if (runtimeConfig?.CUSTOM_CATEGORIES?.length > 0) {
@@ -113,7 +93,6 @@ function DoubanPageClient() {
     }
   }, []);
 
-  // 同步最新参数值到 ref
   useEffect(() => {
     currentParamsRef.current = {
       type,
@@ -130,7 +109,6 @@ function DoubanPageClient() {
     selectedWeekday,
   ]);
 
-  // 初始化时标记选择器为准备好状态
   useEffect(() => {
     const timer = setTimeout(() => {
       setSelectorsReady(true);
@@ -138,26 +116,26 @@ function DoubanPageClient() {
     return () => clearTimeout(timer);
   }, []);
 
-  // type变化时立即重置selectorsReady
   useEffect(() => {
     setSelectorsReady(false);
     setLoading(true);
   }, [type]);
 
-  // 当type变化时重置选择器状态
   useEffect(() => {
     if (type === 'custom' && customCategories.length > 0) {
       const types = Array.from(
         new Set(customCategories.map((cat) => cat.type)),
       );
-      let selectedType = types.includes('movie') ? 'movie' : types[0] || 'tv';
-      setPrimarySelection(selectedType);
+      if (types.length > 0) {
+        let selectedType = types.includes('movie') ? 'movie' : types[0];
+        setPrimarySelection(selectedType);
 
-      const firstCategory = customCategories.find(
-        (cat) => cat.type === selectedType,
-      );
-      if (firstCategory) {
-        setSecondarySelection(firstCategory.query);
+        const firstCategory = customCategories.find(
+          (cat) => cat.type === selectedType,
+        );
+        if (firstCategory) {
+          setSecondarySelection(firstCategory.query);
+        }
       }
     } else {
       if (type === 'movie') {
@@ -193,16 +171,24 @@ function DoubanPageClient() {
     return () => clearTimeout(timer);
   }, [type, customCategories]);
 
-  // 生成骨架屏数据
   const skeletonData = Array.from({ length: 50 }, (_, index) => index);
 
-  // 参数快照比较函数
   const isSnapshotEqual = useCallback(
     (
-
-      snapshot1: any,
-      snapshot2: any,
-
+      snapshot1: {
+        type: string;
+        primarySelection: string;
+        secondarySelection: string;
+        multiLevelSelection: Record<string, string>;
+        selectedWeekday: string;
+      },
+      snapshot2: {
+        type: string;
+        primarySelection: string;
+        secondarySelection: string;
+        multiLevelSelection: Record<string, string>;
+        selectedWeekday: string;
+      },
     ) => {
       return (
         snapshot1.type === snapshot2.type &&
@@ -216,7 +202,6 @@ function DoubanPageClient() {
     [],
   );
 
-  // 生成API请求参数的辅助函数
   const getRequestParams = useCallback(
     (pageStart: number) => {
       if (type === 'tv' || type === 'show') {
@@ -228,6 +213,7 @@ function DoubanPageClient() {
           pageStart,
         };
       }
+
       return {
         kind: type as 'tv' | 'movie',
         category: primarySelection,
@@ -239,7 +225,6 @@ function DoubanPageClient() {
     [type, primarySelection, secondarySelection],
   );
 
-  // 防抖的数据加载函数 - 缓存优先
   const loadInitialData = useCallback(async () => {
     const requestSnapshot = {
       type,
@@ -278,6 +263,7 @@ function DoubanPageClient() {
           (cat) =>
             cat.type === primarySelection && cat.query === secondarySelection,
         );
+
         if (selectedCategory) {
           data = await getDoubanList({
             tag: selectedCategory.query,
@@ -332,10 +318,9 @@ function DoubanPageClient() {
       } else if (primarySelection === '全部') {
         data = await getDoubanRecommends({
           kind: type === 'show' ? 'tv' : (type as 'tv' | 'movie'),
-          pageLimit: 25,
+          pageLimit: 50,
           pageStart: 0,
           category: multiLevelValues.type || '',
-
           format: type === 'show' ? '综艺' : type === 'tv' ? '电视剧' : '',
           region: multiLevelValues.region || '',
           year: multiLevelValues.year || '',
@@ -375,7 +360,6 @@ function DoubanPageClient() {
     customCategories,
   ]);
 
-  // 选择器准备好后加载数据
   useEffect(() => {
     if (!selectorsReady) return;
 
@@ -402,126 +386,11 @@ function DoubanPageClient() {
     loadInitialData,
   ]);
 
-
-  // 加载更多
-  useEffect(() => {
-    if (doubanPage > 0) {
-      const fetchMoreData = async () => {
-        const requestSnapshot = {
-          type,
-          primarySelection,
-          secondarySelection,
-          multiLevelSelection: multiLevelValues,
-          selectedWeekday,
-          doubanPage,
-        };
-
-        try {
-          setDoubanLoadingMore(true);
-
-          let data: DoubanResult;
-          if (type === 'custom') {
-            const selectedCategory = customCategories.find(
-              (cat) =>
-                cat.type === primarySelection &&
-                cat.query === secondarySelection,
-            );
-            if (selectedCategory) {
-              data = await getDoubanList({
-                tag: selectedCategory.query,
-                type: selectedCategory.type,
-                pageLimit: 25,
-                pageStart: doubanPage * 25,
-              });
-            } else {
-              throw new Error('没有找到对应的分类');
-            }
-          } else if (type === 'anime' && primarySelection === '每日放送') {
-            data = { code: 200, message: 'success', list: [] };
-          } else if (type === 'anime') {
-            data = await getDoubanRecommends({
-              kind: primarySelection === '番剧' ? 'tv' : 'movie',
-              pageLimit: 25,
-              pageStart: doubanPage * 25,
-              category: '动画',
-              format: primarySelection === '番剧' ? '电视剧' : '',
-              region: multiLevelValues.region || '',
-              year: multiLevelValues.year || '',
-              platform: multiLevelValues.platform || '',
-              sort: multiLevelValues.sort || '',
-              label: multiLevelValues.label || '',
-            });
-          } else if (primarySelection === '全部') {
-            data = await getDoubanRecommends({
-              kind: type === 'show' ? 'tv' : (type as 'tv' | 'movie'),
-              pageLimit: 25,
-<
-              pageStart: currentPage * 25,
-              category: multiLevelValues.type || '',
-
-              format: type === 'show' ? '综艺' : type === 'tv' ? '电视剧' : '',
-              region: multiLevelValues.region || '',
-              year: multiLevelValues.year || '',
-              platform: multiLevelValues.platform || '',
-              sort: multiLevelValues.sort || '',
-              label: multiLevelValues.label || '',
-            });
-          } else {
-            data = await getDoubanCategories(getRequestParams(doubanPage * 25));
-          }
-
-          if (data.code === 200) {
-            const currentSnapshot = { ...currentParamsRef.current };
-
-            if (isSnapshotEqual(requestSnapshot, currentSnapshot)) {
-              // FIX: Manual append logic for reliable infinite scrolling
-              console.log(
-                '✅ [fetchMoreData] Appending',
-                data.list.length,
-                'items to existing',
-                doubanData.length,
-              );
-              setDoubanData((prev) => [...prev, ...data.list]);
-              setHasMore(data.list.length !== 0);
-
-            }
-          }
-        } catch (err) {
-          console.error(err);
-        } finally {
-          setDoubanLoadingMore(false);
-        }
-      };
-
-      fetchMoreData();
-    }
-  }, [
-    doubanPage,
-    type,
-    primarySelection,
-    secondarySelection,
-    customCategories,
-    multiLevelValues,
-    selectedWeekday,
-  ]);
-
-  const handleLoadMore = useCallback(() => {
-
-
-    if (!hasMore || isLoadingMore || loading) return;
-    setCurrentPage((prev) => prev + 1);
-  }, [hasMore, isLoadingMore, loading]);
-
   const handlePrimaryChange = useCallback(
     (value: string) => {
       if (value !== primarySelection) {
         setLoading(true);
-
-        setCurrentPage(0);
         setDoubanData([]);
-        setHasMore(true);
-        setIsLoadingMore(false);
-
         setMultiLevelValues({
           type: 'all',
           region: 'all',
@@ -558,10 +427,6 @@ function DoubanPageClient() {
     (value: string) => {
       if (value !== secondarySelection) {
         setLoading(true);
-
-        setCurrentPage(0);
-
-
         setDoubanData([]);
         setSecondarySelection(value);
       }
@@ -571,13 +436,19 @@ function DoubanPageClient() {
 
   const handleMultiLevelChange = useCallback(
     (values: Record<string, string>) => {
-      const isEqual = JSON.stringify(values) === JSON.stringify(multiLevelValues);
-      if (isEqual) return;
+      const isEqual = (
+        obj1: Record<string, string>,
+        obj2: Record<string, string>,
+      ) => {
+        const keys1 = Object.keys(obj1).sort();
+        const keys2 = Object.keys(obj2).sort();
+        if (keys1.length !== keys2.length) return false;
+        return keys1.every((key) => obj1[key] === obj2[key]);
+      };
+
+      if (isEqual(values, multiLevelValues)) return;
 
       setLoading(true);
-      setCurrentPage(0);
-
-
       setDoubanData([]);
       setMultiLevelValues(values);
     },
@@ -587,7 +458,6 @@ function DoubanPageClient() {
   const handleWeekdayChange = useCallback((weekday: string) => {
     setSelectedWeekday(weekday);
   }, []);
-
 
   const getPageTitle = () => {
     return type === 'movie'
@@ -628,7 +498,7 @@ function DoubanPageClient() {
             </p>
           </div>
 
-          {/* 选择器组件 - 已移除所有数据源相关 props */}
+          {/* 选择器区域 */}
           {type !== 'custom' ? (
             <div className='bg-white/60 dark:bg-gray-800/40 rounded-2xl p-4 sm:p-6 border border-gray-200/30 dark:border-gray-700/30 backdrop-blur-sm'>
               <DoubanSelector
@@ -639,6 +509,8 @@ function DoubanPageClient() {
                 onSecondaryChange={handleSecondaryChange}
                 onMultiLevelChange={handleMultiLevelChange}
                 onWeekdayChange={handleWeekdayChange}
+                // 已移除所有与数据源相关的 props
+                // 不显示 sources、currentSource、onSourceChange 等
               />
             </div>
           ) : (
@@ -654,22 +526,14 @@ function DoubanPageClient() {
           )}
         </div>
 
-
-        {/* 内容展示区域 */}
-        <div
-          className='max-w-[95%] mx-auto mt-8 overflow-hidden'
-          style={{ height: 'calc(100vh - 280px)' }}
-        >
+        <div className='max-w-[95%] mx-auto mt-8'>
           {loading || !selectorsReady ? (
-
             <div className='grid grid-cols-3 gap-x-2 gap-y-12 px-0 sm:px-2 sm:grid-cols-[repeat(auto-fill,minmax(160px,1fr))] sm:gap-x-8 sm:gap-y-20'>
               {skeletonData.map((index) => (
                 <DoubanCardSkeleton key={index} />
               ))}
             </div>
-
           ) : (
-
             <VirtualGrid
               items={doubanData}
               priorityCount={12}
@@ -692,13 +556,6 @@ function DoubanPageClient() {
               )}
             />
           )}
-
-
-          {!hasMore && doubanData.length > 0 && (
-            <div className='text-center text-gray-500 py-4'>已加载全部内容</div>
-          )}
-
-
         </div>
       </div>
     </PageLayout>
