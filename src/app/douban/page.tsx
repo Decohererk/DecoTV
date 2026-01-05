@@ -36,11 +36,8 @@ function DoubanPageClient() {
   const [doubanData, setDoubanData] = useState<DoubanItem[]>([]);
   const [sourceData, setSourceData] = useState<DoubanItem[]>([]);
 
-  // 豆瓣模式分页状态
+  // 豆瓣模式加载状态
   const [loading, setLoading] = useState(false);
-  const [doubanPage, setDoubanPage] = useState(0);
-  const [doubanHasMore, setDoubanHasMore] = useState(true);
-  const [doubanLoadingMore, setDoubanLoadingMore] = useState(false);
 
   // 源模式分页状态
   const [sourceLoadingMore, setSourceLoadingMore] = useState(false);
@@ -57,7 +54,6 @@ function DoubanPageClient() {
     secondarySelection: '',
     multiLevelSelection: {} as Record<string, string>,
     selectedWeekday: '',
-    doubanPage: 0,
   });
 
   const type = searchParams.get('type') || 'movie';
@@ -125,7 +121,6 @@ function DoubanPageClient() {
       secondarySelection,
       multiLevelSelection: multiLevelValues,
       selectedWeekday,
-      doubanPage,
     };
   }, [
     type,
@@ -133,7 +128,6 @@ function DoubanPageClient() {
     secondarySelection,
     multiLevelValues,
     selectedWeekday,
-    doubanPage,
   ]);
 
   // 初始化时标记选择器为准备好状态
@@ -200,19 +194,16 @@ function DoubanPageClient() {
   }, [type, customCategories]);
 
   // 生成骨架屏数据
-  const skeletonData = Array.from({ length: 25 }, (_, index) => index);
+  const skeletonData = Array.from({ length: 50 }, (_, index) => index);
 
   // 参数快照比较函数
-  // FIX: 不比较 doubanPage，因为分页加载时页码会变化
-  // 我们只需要确保 type/selection/filter 参数没有被用户切换
   const isSnapshotEqual = useCallback(
     (
+
       snapshot1: any,
       snapshot2: any,
- main
+
     ) => {
-      // 只比较筛选条件，不比较页码
-      // 页码变化是正常的分页行为，不应阻止数据追加
       return (
         snapshot1.type === snapshot2.type &&
         snapshot1.primarySelection === snapshot2.primarySelection &&
@@ -233,7 +224,7 @@ function DoubanPageClient() {
           kind: 'tv' as const,
           category: type,
           type: secondarySelection,
-          pageLimit: 25,
+          pageLimit: 50,
           pageStart,
         };
       }
@@ -241,7 +232,7 @@ function DoubanPageClient() {
         kind: type as 'tv' | 'movie',
         category: primarySelection,
         type: secondarySelection,
-        pageLimit: 25,
+        pageLimit: 50,
         pageStart,
       };
     },
@@ -256,7 +247,6 @@ function DoubanPageClient() {
       secondarySelection,
       multiLevelSelection: multiLevelValues,
       selectedWeekday,
-      doubanPage: 0,
     };
 
     const cacheKey = generateCacheKey('douban', {
@@ -274,19 +264,12 @@ function DoubanPageClient() {
       );
       setDoubanData(cachedData);
       setLoading(false);
-      // FIX: 缓存命中时也要重置分页状态，否则 doubanPage 保持旧值会导致跳页
-      setDoubanPage(0);
-      setDoubanHasMore(cachedData.length >= 25);
-      setDoubanLoadingMore(false);
       return;
     }
 
     try {
       setLoading(true);
       setDoubanData([]);
-      setDoubanPage(0);
-      setDoubanHasMore(true);
-      setDoubanLoadingMore(false);
 
       let data: DoubanResult;
 
@@ -299,7 +282,7 @@ function DoubanPageClient() {
           data = await getDoubanList({
             tag: selectedCategory.query,
             type: selectedCategory.type,
-            pageLimit: 25,
+            pageLimit: 50,
             pageStart: 0,
           });
         } else {
@@ -336,7 +319,7 @@ function DoubanPageClient() {
       } else if (type === 'anime') {
         data = await getDoubanRecommends({
           kind: primarySelection === '番剧' ? 'tv' : 'movie',
-          pageLimit: 25,
+          pageLimit: 50,
           pageStart: 0,
           category: '动画',
           format: primarySelection === '番剧' ? '电视剧' : '',
@@ -352,6 +335,7 @@ function DoubanPageClient() {
           pageLimit: 25,
           pageStart: 0,
           category: multiLevelValues.type || '',
+
           format: type === 'show' ? '综艺' : type === 'tv' ? '电视剧' : '',
           region: multiLevelValues.region || '',
           year: multiLevelValues.year || '',
@@ -367,7 +351,6 @@ function DoubanPageClient() {
         const currentSnapshot = { ...currentParamsRef.current };
         if (isSnapshotEqual(requestSnapshot, currentSnapshot)) {
           setDoubanData(data.list);
-          setDoubanHasMore(data.list.length !== 0);
           setLoading(false);
 
           if (data.list.length > 0) {
@@ -418,6 +401,7 @@ function DoubanPageClient() {
     selectedWeekday,
     loadInitialData,
   ]);
+
 
   // 加载更多
   useEffect(() => {
@@ -523,6 +507,7 @@ function DoubanPageClient() {
 
   const handleLoadMore = useCallback(() => {
 
+
     if (!hasMore || isLoadingMore || loading) return;
     setCurrentPage((prev) => prev + 1);
   }, [hasMore, isLoadingMore, loading]);
@@ -531,10 +516,12 @@ function DoubanPageClient() {
     (value: string) => {
       if (value !== primarySelection) {
         setLoading(true);
+
         setCurrentPage(0);
         setDoubanData([]);
         setHasMore(true);
         setIsLoadingMore(false);
+
         setMultiLevelValues({
           type: 'all',
           region: 'all',
@@ -574,9 +561,8 @@ function DoubanPageClient() {
 
         setCurrentPage(0);
 
+
         setDoubanData([]);
-        setDoubanHasMore(true);
-        setDoubanLoadingMore(false);
         setSecondarySelection(value);
       }
     },
@@ -591,9 +577,8 @@ function DoubanPageClient() {
       setLoading(true);
       setCurrentPage(0);
 
+
       setDoubanData([]);
-      setDoubanHasMore(true);
-      setDoubanLoadingMore(false);
       setMultiLevelValues(values);
     },
     [multiLevelValues],
@@ -602,6 +587,8 @@ function DoubanPageClient() {
   const handleWeekdayChange = useCallback((weekday: string) => {
     setSelectedWeekday(weekday);
   }, []);
+
+
   const getPageTitle = () => {
     return type === 'movie'
       ? '电影'
@@ -682,12 +669,10 @@ function DoubanPageClient() {
             </div>
 
           ) : (
+
             <VirtualGrid
               items={doubanData}
               priorityCount={12}
-              hasMore={doubanHasMore}
-              isLoadingMore={doubanLoadingMore}
-              onLoadMore={handleLoadMore}
               renderItem={(item, priority, index) => (
                 <div key={`${item.title}-${index}`} className='w-full h-full'>
                   <VideoCard
@@ -712,6 +697,7 @@ function DoubanPageClient() {
           {!hasMore && doubanData.length > 0 && (
             <div className='text-center text-gray-500 py-4'>已加载全部内容</div>
           )}
+
 
         </div>
       </div>
