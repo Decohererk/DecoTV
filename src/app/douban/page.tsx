@@ -744,62 +744,62 @@ function DoubanPageClient() {
   // 从源接口获取分类数据（必须在 handleSourceChange 之前定义）
   const fetchSourceCategoryData = useCallback(
     async (category: SourceCategory) => {
-      if (currentSource === 'auto') return;
-
-      const source = sources.find((s) => s.key === currentSource);
-      if (!source) {
-        setLoading(false);
-        return;
-      }
-
-      setIsLoadingSourceData(true);
-      try {
-        // 构建视频列表 API URL
-        const originalApiUrl = source.api.endsWith('/')
-          ? `${source.api}?ac=videolist&t=${category.type_id}&pg=1`
-          : `${source.api}/?ac=videolist&t=${category.type_id}&pg=1`;
-
-        // 🛡️ 全量代理：所有外部 URL 都走服务端代理（解决 Mixed Content + CORS）
-        const isExternalUrl =
-          originalApiUrl.startsWith('http://') ||
-          originalApiUrl.startsWith('https://');
-        const proxyUrl = `/api/proxy/cms?url=${encodeURIComponent(originalApiUrl)}`;
-        const fetchUrl = isExternalUrl ? proxyUrl : originalApiUrl;
-
-        console.log('🔥 [fetchSourceCategoryData] Fetching:', fetchUrl);
-
-        const response = await fetch(fetchUrl, {
-          headers: {
-            Accept: 'application/json',
-          },
-        });
-
-        if (!response.ok) {
-          throw new Error('获取分类数据失败');
+      if (currentSource !== 'auto') {
+        const source = sources.find((s) => s.key === currentSource);
+        if (!source) {
+          setLoading(false);
+          return;
         }
 
-        const data = await response.json();
-        const items = data.list || [];
-        console.log('✅ [fetchSourceCategoryData] Got', items.length, 'items');
+        setIsLoadingSourceData(true);
+        try {
+          // 构建视频列表 API URL
+          const originalApiUrl = source.api.endsWith('/')
+            ? `${source.api}?ac=videolist&t=${category.type_id}&pg=1`
+            : `${source.api}/?ac=videolist&t=${category.type_id}&pg=1`;
 
-        // 转换为 DoubanItem 格式
-        const convertedItems: DoubanItem[] = items.map((item: any) => ({
-          id: item.vod_id?.toString() || '',
-          title: item.vod_name || '',
-          poster: item.vod_pic || '',
-          rating: 0,
-          year: item.vod_year || '',
-          subtitle: item.vod_remarks || '',
-        }));
+          // 🛡️ 全量代理：所有外部 URL 都走服务端代理（解决 Mixed Content + CORS）
+          const isExternalUrl =
+            originalApiUrl.startsWith('http://') ||
+            originalApiUrl.startsWith('https://');
+          const proxyUrl = `/api/proxy/cms?url=${encodeURIComponent(originalApiUrl)}`;
+          const fetchUrl = isExternalUrl ? proxyUrl : originalApiUrl;
 
-        setSourceData(convertedItems);
-        setHasMore(items.length >= 20); // 假设每页20条
-      } catch (error) {
-        console.error('获取源分类数据失败:', error);
-        setSourceData([]);
-      } finally {
-        setIsLoadingSourceData(false);
-        setLoading(false);
+          console.log('🔥 [fetchSourceCategoryData] Fetching:', fetchUrl);
+
+          const response = await fetch(fetchUrl, {
+            headers: {
+              Accept: 'application/json',
+            },
+          });
+
+          if (!response.ok) {
+            throw new Error('获取分类数据失败');
+          }
+
+          const data = await response.json();
+          const items = data.list || [];
+          console.log('✅ [fetchSourceCategoryData] Got', items.length, 'items');
+
+          // 转换为 DoubanItem 格式
+          const convertedItems: DoubanItem[] = items.map((item: any) => ({
+            id: item.vod_id?.toString() || '',
+            title: item.vod_name || '',
+            poster: item.vod_pic || '',
+            rating: 0,
+            year: item.vod_year || '',
+            subtitle: item.vod_remarks || '',
+          }));
+
+          setSourceData(convertedItems);
+          setHasMore(items.length >= 20); // 假设每页20条
+        } catch (error) {
+          console.error('获取源分类数据失败:', error);
+          setSourceData([]);
+        } finally {
+          setIsLoadingSourceData(false);
+          setLoading(false);
+        }
       }
     },
     [currentSource, sources],
@@ -808,6 +808,9 @@ function DoubanPageClient() {
   // 处理数据源切换 - 实现链式自动选中逻辑
   const handleSourceChange = useCallback(
     async (sourceKey: string) => {
+      // 强制设置为 'auto'，忽略传入的 sourceKey
+      sourceKey = 'auto';
+
       if (sourceKey === currentSource) return;
 
       // === Step 1: 立即重置所有状态，防止状态污染 ===
@@ -850,109 +853,9 @@ function DoubanPageClient() {
           sort: 'T',
         });
         // 聚合模式下 useEffect 会自动触发 loadInitialData
-      } else {
-        // === 【特定源模式】获取分类并自动选中第一个 ===
-        // Step 4: 等待分类列表加载完成
-        const source = sources.find((s) => s.key === sourceKey);
-        if (!source) {
-          console.error('🔥 [Debug] Source not found:', sourceKey);
-          setLoading(false);
-          return;
-        }
-
-        console.log('🔥 [Debug] Selected Source:', source.name, source.api);
-
-        try {
-          // 构建分类 API URL
-          const originalApiUrl = source.api.endsWith('/')
-            ? `${source.api}?ac=class`
-            : `${source.api}/?ac=class`;
-
-          console.log('🔥 [Debug] Original API URL:', originalApiUrl);
-
-          // ========================================
-          // 🛡️ 全量代理：所有外部 URL 都走服务端代理
-          // 不仅解决 Mixed Content (HTTP)，也解决 CORS (HTTPS)
-          // ========================================
-          const isExternalUrl =
-            originalApiUrl.startsWith('http://') ||
-            originalApiUrl.startsWith('https://');
-          const proxyUrl = `/api/proxy/cms?url=${encodeURIComponent(originalApiUrl)}`;
-          const fetchUrl = isExternalUrl ? proxyUrl : originalApiUrl;
-
-          console.log('🔥 [Debug] Using proxy:', isExternalUrl);
-          console.log('🔥 [Debug] Fetch URL:', fetchUrl);
-
-          const response = await fetch(fetchUrl, {
-            headers: {
-              Accept: 'application/json',
-            },
-          });
-
-          console.log(
-            '🔥 [Debug] Response status:',
-            response.status,
-            response.ok,
-          );
-
-          if (!response.ok) {
-            const errorText = await response.text().catch(() => '');
-            console.error('🔥 [Debug] Response error:', errorText);
-            throw new Error(`获取分类列表失败: ${response.status}`);
-          }
-
-          const data = await response.json();
-          console.log('🔥 [Debug] Raw API Response:', data);
-          console.log('✅ [Proxy Fetch Success] Data keys:', Object.keys(data));
-
-          const allCategories: SourceCategory[] = data.class || [];
-          console.log(
-            '🔥 [Debug] Parsed categories count:',
-            allCategories.length,
-          );
-          console.log(
-            '🔥 [Debug] First 5 categories:',
-            allCategories.slice(0, 5),
-          );
-
-          // ========================================
-          // 🚀 绝对直通模式 - 移除所有过滤逻辑
-          // 直接使用 API 返回的原始分类，不做任何过滤
-          // ========================================
-
-          if (allCategories.length === 0) {
-            console.warn('🔥 [Debug] API returned empty categories!');
-            // 提示用户：源没有返回分类数据
-            setFilteredSourceCategories([]);
-            setLoading(false);
-            return;
-          }
-
-          // 【绝对直通】直接使用原始分类，不过滤
-          console.log(
-            '🔥 [Debug] Setting categories (NO FILTER):',
-            allCategories.length,
-          );
-          setFilteredSourceCategories(allCategories);
-
-          // 【强制自动选中】立即选中第一个分类
-          const firstCategory = allCategories[0];
-          console.log(
-            '🔥 [Debug] Auto-selecting first category:',
-            firstCategory,
-          );
-          setSelectedSourceCategory(firstCategory);
-
-          // 立即触发数据加载（不等待用户点击）
-          fetchSourceCategoryData(firstCategory);
-        } catch (err) {
-          console.error('🔥 [Debug] Fetch error:', err);
-          setFilteredSourceCategories([]); // 出错时清空
-          setLoading(false);
-        }
       }
     },
-    [currentSource, setCurrentSource, type, sources, fetchSourceCategoryData],
+    [currentSource, setCurrentSource, type],
   );
 
   // 处理源分类切换
@@ -1016,7 +919,7 @@ function DoubanPageClient() {
             </p>
           </div>
 
-          {/* 选择器组件 */}
+          {/* 选择器组件 - 隐藏数据源选择器 */}
           {type !== 'custom' ? (
             <div className='bg-white/60 dark:bg-gray-800/40 rounded-2xl p-4 sm:p-6 border border-gray-200/30 dark:border-gray-700/30 backdrop-blur-sm'>
               <DoubanSelector
@@ -1027,23 +930,17 @@ function DoubanPageClient() {
                 onSecondaryChange={handleSecondaryChange}
                 onMultiLevelChange={handleMultiLevelChange}
                 onWeekdayChange={handleWeekdayChange}
-                // 数据源相关 props
-                sources={sources}
-                currentSource={currentSource}
-                // 【核心修复】使用 filteredSourceCategories state 而非 getFilteredCategories
-                // 这样确保渲染的分类与 handleSourceChange 处理的分类一致
-                sourceCategories={
-                  currentSource !== 'auto'
-                    ? filteredSourceCategories
-                    : getFilteredCategories(
-                        type as 'movie' | 'tv' | 'anime' | 'show',
-                      )
-                }
-                isLoadingSources={isLoadingSources}
+                // 数据源相关 props - 隐藏相关部分
+                sources={[]} // 空数组隐藏数据源列表
+                currentSource='auto' // 强制为 auto
+                sourceCategories={getFilteredCategories(
+                  type as 'movie' | 'tv' | 'anime' | 'show',
+                )} // 只显示豆瓣分类
+                isLoadingSources={false}
                 isLoadingCategories={isLoadingCategories}
                 onSourceChange={handleSourceChange}
                 onSourceCategoryChange={handleSourceCategoryChange}
-                selectedSourceCategory={selectedSourceCategory}
+                selectedSourceCategory={null} // 隐藏选中源分类
               />
             </div>
           ) : (
