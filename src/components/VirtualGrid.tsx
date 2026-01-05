@@ -135,8 +135,11 @@ function VirtualGridInner<T extends VirtualGridItem>({
   const gridItems = useMemo(() => {
     return items.map((item, index) => {
       const priority = index < priorityCount;
+      // 🔧 修复 key 策略: 使用 id 作为主要标识，title 和 index 作为后备
+      // 这样可以避免重复 ID 导致的渲染问题
+      const uniqueKey = item.id ? `item-${item.id}` : `${item.title}-${index}`;
       return (
-        <div key={`${item.id || item.title}-${index}`} className='w-full'>
+        <div key={uniqueKey} className='w-full'>
           {renderItem(item, priority, index)}
         </div>
       );

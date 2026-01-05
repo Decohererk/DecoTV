@@ -32,6 +32,9 @@ import VirtualGrid from '@/components/VirtualGrid';
 function DoubanPageClient() {
   const searchParams = useSearchParams();
 
+  // 🔧 统一分页常量 - 防止分页步长不一致导致重复数据
+  const PAGE_SIZE = 50;
+
   // 参数映射: 中文 -> 英文 (解决 API 400 错误)
   const CATEGORY_MAPPING: Record<string, string> = {
     热门: 'hot',
@@ -78,8 +81,7 @@ function DoubanPageClient() {
   // 豆瓣模式加载状态
   const [loading, setLoading] = useState(false);
 
-  // 豆瓣模式分页状态 (SmoneTV Pattern)
-  const [currentPage, setCurrentPage] = useState(0);
+  // 豆瓣模式分页状态 (SmoneTV Pattern) - 使用动态偏移，不再需要 currentPage
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
@@ -278,7 +280,7 @@ function DoubanPageClient() {
           kind: 'tv' as const,
           category: type,
           type: safeType,
-          pageLimit: 50,
+          pageLimit: PAGE_SIZE,
           pageStart,
         };
       }
@@ -287,7 +289,7 @@ function DoubanPageClient() {
         kind: type as 'tv' | 'movie',
         category: safeCategory,
         type: safeType,
-        pageLimit: 50,
+        pageLimit: PAGE_SIZE,
         pageStart,
       };
     },
@@ -338,7 +340,7 @@ function DoubanPageClient() {
           data = await getDoubanList({
             tag: selectedCategory.query,
             type: selectedCategory.type,
-            pageLimit: 50,
+            pageLimit: PAGE_SIZE,
             pageStart: 0,
           });
         } else {
@@ -375,7 +377,7 @@ function DoubanPageClient() {
       } else if (type === 'anime') {
         data = await getDoubanRecommends({
           kind: primarySelection === '番剧' ? 'tv' : 'movie',
-          pageLimit: 50,
+          pageLimit: PAGE_SIZE,
           pageStart: 0,
           category: '动画',
           format: primarySelection === '番剧' ? '电视剧' : '',
@@ -391,6 +393,7 @@ function DoubanPageClient() {
           pageLimit: 50,
           pageStart: 0,
           category: multiLevelValues.type || '',
+
           format: type === 'show' ? '综艺' : type === 'tv' ? '电视剧' : '',
           region: multiLevelValues.region || '',
           year: multiLevelValues.year || '',
@@ -409,6 +412,7 @@ function DoubanPageClient() {
           setDoubanData(data.list);
           setHasMore(data.list.length >= 50);
           setCurrentPage(0);
+
           setLoading(false);
 
           if (data.list.length > 0) {
@@ -441,14 +445,16 @@ function DoubanPageClient() {
       return;
     }
 
+
     const requestSnapshot = {
+
       type,
       primarySelection,
       secondarySelection,
       multiLevelSelection: multiLevelValues,
       selectedWeekday,
-      currentPage: currentPage + 1,
     };
+
 
     currentParamsRef.current = {
       type: requestSnapshot.type,
@@ -458,11 +464,14 @@ function DoubanPageClient() {
       selectedWeekday: requestSnapshot.selectedWeekday,
     };
 
+
     try {
       setIsLoadingMore(true);
+      console.log(`📍 [fetchMoreData] Requesting from offset: ${pageStart}`);
 
       let data: DoubanResult;
-      const pageStart = requestSnapshot.currentPage * 50;
+
+
 
       if (type === 'custom') {
         const selectedCategory = customCategories.find(
@@ -473,7 +482,7 @@ function DoubanPageClient() {
           data = await getDoubanList({
             tag: selectedCategory.query,
             type: selectedCategory.type,
-            pageLimit: 50,
+            pageLimit: PAGE_SIZE,
             pageStart,
           });
         } else {
@@ -484,7 +493,7 @@ function DoubanPageClient() {
       } else if (type === 'anime') {
         data = await getDoubanRecommends({
           kind: primarySelection === '番剧' ? 'tv' : 'movie',
-          pageLimit: 50,
+          pageLimit: PAGE_SIZE,
           pageStart,
           category: '动画',
           format: primarySelection === '番剧' ? '电视剧' : '',
@@ -497,7 +506,7 @@ function DoubanPageClient() {
       } else if (primarySelection === '全部') {
         data = await getDoubanRecommends({
           kind: type === 'show' ? 'tv' : (type as 'tv' | 'movie'),
-          pageLimit: 50,
+          pageLimit: PAGE_SIZE,
           pageStart,
           category: multiLevelValues.type || '',
           format: type === 'show' ? '综艺' : type === 'tv' ? '电视剧' : '',
@@ -512,6 +521,7 @@ function DoubanPageClient() {
       }
 
       if (data.code === 200) {
+
         const currentSnapshot = { ...currentParamsRef.current };
         const isMatch =
           requestSnapshot.type === currentSnapshot.type &&
@@ -521,16 +531,40 @@ function DoubanPageClient() {
             currentSnapshot.secondarySelection;
 
         if (isMatch && data.list.length > 0) {
+
           console.log(
             '✅ [fetchMoreData] Appending',
             data.list.length,
             'items to existing',
             doubanData.length,
           );
-          setDoubanData((prev) => [...prev, ...data.list]);
-          setHasMore(data.list.length >= 50);
-          setCurrentPage((prev) => prev + 1);
-        } else if (!isMatch) {
+
+          // 🔧 双重锁定去重: 检查 New vs Old + New vs New (API内部重复)
+          setDoubanData((prev) => {
+            const existingIds = new Set(prev.map((item) => item.id));
+            const uniqueNewItems: DoubanItem[] = [];
+
+            for (const item of data.list) {
+              // Check 1: 不在现有列表中
+              // Check 2: 不在本批次已添加的项中 (修复 API 返回内部重复)
+              if (!existingIds.has(item.id)) {
+                existingIds.add(item.id); // 立即添加到 Set，阻止后续重复
+                uniqueNewItems.push(item);
+              }
+            }
+
+            console.log(
+              `   📊 Batch: ${data.list.length}, Added: ${uniqueNewItems.length}, Duplicates removed: ${data.list.length - uniqueNewItems.length}`,
+            );
+
+            // 如果没有新数据，返回原数组避免不必要的重渲染
+            if (uniqueNewItems.length === 0) return prev;
+            return [...prev, ...uniqueNewItems];
+          });
+
+          // ✅ 宽松的 hasMore 条件: 只要返回了数据就继续
+          setHasMore(data.list.length > 0);
+        } else if (!isFilterMatch) {
           console.log('⚠️ [fetchMoreData] Filter changed, discarding data');
         } else {
           console.log('ℹ️ [fetchMoreData] No more data');
@@ -549,7 +583,6 @@ function DoubanPageClient() {
   }, [
     isLoadingMore,
     hasMore,
-    currentPage,
     type,
     primarySelection,
     secondarySelection,
@@ -558,6 +591,7 @@ function DoubanPageClient() {
     customCategories,
     doubanData.length,
     getRequestParams,
+    PAGE_SIZE,
   ]);
 
   // VirtualGrid 触底回调
@@ -572,7 +606,9 @@ function DoubanPageClient() {
   useEffect(() => {
     if (!selectorsReady) return;
 
+
     setCurrentPage(0);
+
     setHasMore(true);
     setIsLoadingMore(false);
 
@@ -745,6 +781,7 @@ function DoubanPageClient() {
                 <DoubanCardSkeleton key={index} />
               ))}
             </div>
+
           ) : (
             <VirtualGrid
               items={doubanData}
@@ -752,22 +789,20 @@ function DoubanPageClient() {
               hasMore={hasMore}
               isLoadingMore={isLoadingMore}
               onLoadMore={handleLoadMore}
-              renderItem={(item, priority, index) => (
-                <div key={`${item.title}-${index}`} className='w-full h-full'>
-                  <VideoCard
-                    from='douban'
-                    title={item.title}
-                    poster={item.poster}
-                    douban_id={Number(item.id)}
-                    rate={item.rate}
-                    year={item.year}
-                    type={type === 'movie' ? 'movie' : ''}
-                    isBangumi={
-                      type === 'anime' && primarySelection === '每日放送'
-                    }
-                    priority={priority}
-                  />
-                </div>
+              renderItem={(item, priority) => (
+                <VideoCard
+                  from='douban'
+                  title={item.title}
+                  poster={item.poster}
+                  douban_id={Number(item.id)}
+                  rate={item.rate}
+                  year={item.year}
+                  type={type === 'movie' ? 'movie' : ''}
+                  isBangumi={
+                    type === 'anime' && primarySelection === '每日放送'
+                  }
+                  priority={priority}
+                />
               )}
             />
           )}
