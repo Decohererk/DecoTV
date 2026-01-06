@@ -1,9 +1,12 @@
+// Modified: one.route.ts
+
 import { NextRequest, NextResponse } from 'next/server';
 
 import { resolveAdultFilter } from '@/lib/adult-filter';
 import { getAuthInfoFromCookie } from '@/lib/auth';
 import { getAvailableApiSites, getCacheTime, getConfig } from '@/lib/config';
 import { searchFromApi } from '@/lib/downstream';
+import { bannedWords } from '@/lib/filter'; // 新增导入
 import { yellowWords } from '@/lib/yellow';
 
 export const runtime = 'nodejs';
@@ -29,6 +32,25 @@ export async function GET(request: NextRequest) {
           'CDN-Cache-Control': `public, s-maxage=${cacheTime}`,
           'Vercel-CDN-Cache-Control': `public, s-maxage=${cacheTime}`,
           'Netlify-Vary': 'query',
+        },
+      },
+    );
+  }
+
+  // 检查违禁词
+  const queryLower = query.toLowerCase();
+  if (bannedWords.some(word => queryLower.includes(word.toLowerCase()))) {
+    return NextResponse.json(
+      {
+        error: '未找到结果',
+        result: null,
+      },
+      {
+        status: 404,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Cookie',
         },
       },
     );

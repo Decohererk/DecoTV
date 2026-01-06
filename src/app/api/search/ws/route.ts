@@ -1,3 +1,5 @@
+// Modified: ws.route.ts
+
 /* eslint-disable @typescript-eslint/no-explicit-any,no-console */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -6,6 +8,7 @@ import { getAuthInfoFromCookie } from '@/lib/auth';
 import { toSimplified } from '@/lib/chinese';
 import { getAvailableApiSites, getConfig } from '@/lib/config';
 import { searchFromApi } from '@/lib/downstream';
+import { bannedWords } from '@/lib/filter'; // 新增导入
 import { rankSearchResults } from '@/lib/search-ranking';
 import { yellowWords } from '@/lib/yellow';
 
@@ -25,6 +28,41 @@ export async function GET(request: NextRequest) {
       status: 400,
       headers: {
         'Content-Type': 'application/json',
+      },
+    });
+  }
+
+  // 检查违禁词
+  const queryLower = query.toLowerCase();
+  if (bannedWords.some(word => queryLower.includes(word.toLowerCase()))) {
+    // 返回一个模拟的空结果流
+    const stream = new ReadableStream({
+      start(controller) {
+        const encoder = new TextEncoder();
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+          type: 'start',
+          query,
+          normalizedQuery: query,
+          totalSources: 0,
+          timestamp: Date.now(),
+        })}\n\n`));
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+          type: 'complete',
+          totalResults: 0,
+          completedSources: 0,
+          timestamp: Date.now(),
+        })}\n\n`));
+        controller.close();
+      }
+    });
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET',
+        'Access-Control-Allow-Headers': 'Content-Type',
       },
     });
   }

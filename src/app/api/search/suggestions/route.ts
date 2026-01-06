@@ -1,3 +1,5 @@
+// Modified: suggestions.route.ts
+
 /* eslint-disable @typescript-eslint/no-explicit-any,no-console */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -7,6 +9,7 @@ import { getAuthInfoFromCookie } from '@/lib/auth';
 import { toSimplified } from '@/lib/chinese';
 import { getAvailableApiSites, getConfig } from '@/lib/config';
 import { searchFromApi } from '@/lib/downstream';
+import { bannedWords } from '@/lib/filter'; // 新增导入
 import { yellowWords } from '@/lib/yellow';
 
 export const runtime = 'nodejs';
@@ -25,6 +28,12 @@ export async function GET(request: NextRequest) {
     const query = searchParams.get('q')?.trim();
 
     if (!query) {
+      return NextResponse.json({ suggestions: [] });
+    }
+
+    // 检查违禁词
+    const queryLower = query.toLowerCase();
+    if (bannedWords.some(word => queryLower.includes(word.toLowerCase()))) {
       return NextResponse.json({ suggestions: [] });
     }
 
