@@ -1,0 +1,82 @@
+[
+  {
+    "name": "type: bug",
+    "color": "d73a4a",
+    "description": "Something isn't working"
+  },
+  {
+    "name": "type: feature",
+    "color": "0366d6",
+    "description": "New feature or request"
+  },
+  {
+    "name": "type: question",
+    "color": "d876e3",
+    "description": "Further information is requested"
+  },
+  {
+    "name": "type: documentation",
+    "color": "0075ca",
+    "description": "Improvements or additions to documentation"
+  },
+
+  {
+    "name": "P0-Critical",
+    "color": "b60205",
+    "description": "Urgent, blocks development or usage"
+  },
+  {
+    "name": "P1-High",
+    "color": "d93f0b",
+    "description": "Important fix or feature"
+  },
+  { "name": "P2-Normal", "color": "fbca04", "description": "Regular priority" },
+
+  {
+    "name": "status: wontfix",
+    "color": "ffffff",
+    "description": "This will not be worked on"
+  },
+  {
+    "name": "status: duplicate",
+    "color": "cfd3d7",
+    "description": "This issue or pull request already exists"
+  },
+  {
+    "name": "status: needs-triage",
+    "color": "f9d0c4",
+    "description": "Pending review"
+  },
+
+  {
+    "name": "comp: docker",
+    "color": "537a96",
+    "description": "Related to Docker deployment"
+  },
+  {
+    "name": "comp: next.js",
+    "color": "000000",
+    "description": "Related to Next.js framework"
+  },
+  {
+    "name": "comp: cloudflare",
+    "color": "f38020",
+    "description": "Related to Cloudflare/Edge workers"
+  },
+  {
+    "name": "comp: player",
+    "color": "008080",
+    "description": "Related to video player"
+  },
+
+  {
+    "name": "good first issue",
+    "color": "7057ff",
+    "description": "Good for newcomers"
+  },
+  {
+    "name": "help wanted",
+    "color": "008672",
+    "description": "Extra attention is needed"
+  }
+]

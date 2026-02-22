@@ -11,7 +11,7 @@ const testCases = [
   '後宮甄嬛傳',
   '憂鬱症',
   '發財',
-  '頭髮'
+  '頭髮',
 ];
 
 console.log('Testing opencc-js conversion:');
@@ -19,7 +19,7 @@ console.log('--------------------------------------------------');
 console.log('Original\t| HK->CN\t| TW->CN\t| T->CN');
 console.log('--------------------------------------------------');
 
-testCases.forEach(text => {
+testCases.forEach((text) => {
   const hk = hk2cn(text);
   const tw = tw2cn(text);
   const t = t2cn(text);

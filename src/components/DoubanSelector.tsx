@@ -52,6 +52,7 @@ interface DoubanSelectorProps {
   onSourceChange?: (sourceKey: string) => void;
   onSourceCategoryChange?: (category: SourceCategory) => void;
   selectedSourceCategory?: SourceCategory | null;
+  hideSourceSelector?: boolean;
 }
 
 const DoubanSelector: React.FC<DoubanSelectorProps> = ({
@@ -71,6 +72,7 @@ const DoubanSelector: React.FC<DoubanSelectorProps> = ({
   onSourceChange,
   onSourceCategoryChange,
   selectedSourceCategory,
+  hideSourceSelector = false,
 }) => {
   // 数据源选择器的 refs
   const sourceButtonRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -947,7 +949,7 @@ const DoubanSelector: React.FC<DoubanSelectorProps> = ({
 
       <div className='space-y-4 sm:space-y-6'>
         {/* 数据源选择器 - 始终在最上方 */}
-        {sources.length > 0 && renderSourceSelector()}
+        {!hideSourceSelector && sources.length > 0 && renderSourceSelector()}
 
         {/* 源分类选择器 - 当选择特定源时显示 */}
         {!useDoubanCategories && renderSourceCategorySelector()}

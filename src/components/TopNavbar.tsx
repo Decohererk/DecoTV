@@ -20,7 +20,16 @@
 
 /// <reference lib="dom" />
 
-import { Cat, Clover, Film, Home, Radio, Search, Tv } from 'lucide-react';
+import {
+  Cat,
+  Cloud,
+  Clover,
+  Film,
+  Home,
+  Radio,
+  Search,
+  Tv,
+} from 'lucide-react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import {
   memo,
@@ -32,6 +41,7 @@ import {
 } from 'react';
 
 import FastLink from './FastLink';
+import SourceBrowserIcon from './icons/SourceBrowserIcon';
 import { useSite } from './SiteProvider';
 import { ThemeToggle } from './ThemeToggle';
 import { UserMenu } from './UserMenu';
@@ -61,6 +71,24 @@ const NAV_ITEMS = [
     openInNewTab: false, // 搜索不需要新标签页
   },
   {
+    key: 'source-browser',
+    href: '/source-browser',
+    icon: SourceBrowserIcon,
+    label: '源浏览器',
+    chip: 'chip-source-browser',
+    type: 'exact',
+    openInNewTab: false,
+  },
+  {
+    key: 'netdisk',
+    href: '/netdisk',
+    icon: Cloud,
+    label: '网盘',
+    chip: 'chip-netdisk',
+    type: 'exact',
+    openInNewTab: false,
+  },
+  {
     key: 'movie',
     href: '/douban?type=movie',
     icon: Film,
@@ -68,7 +96,7 @@ const NAV_ITEMS = [
     chip: 'chip-movie',
     type: 'douban',
     doubanType: 'movie',
-    openInNewTab: true, // PC端新标签页打开，解决卡顿
+    openInNewTab: false,
   },
   {
     key: 'tv',
@@ -78,7 +106,7 @@ const NAV_ITEMS = [
     chip: 'chip-tv',
     type: 'douban',
     doubanType: 'tv',
-    openInNewTab: true,
+    openInNewTab: false,
   },
   {
     key: 'anime',
@@ -88,7 +116,7 @@ const NAV_ITEMS = [
     chip: 'chip-anime',
     type: 'douban',
     doubanType: 'anime',
-    openInNewTab: true,
+    openInNewTab: false,
   },
   {
     key: 'show',
@@ -98,7 +126,7 @@ const NAV_ITEMS = [
     chip: 'chip-show',
     type: 'douban',
     doubanType: 'show',
-    openInNewTab: true,
+    openInNewTab: false,
   },
   {
     key: 'live',
@@ -107,7 +135,7 @@ const NAV_ITEMS = [
     label: '直播',
     chip: 'chip-live',
     type: 'exact',
-    openInNewTab: true,
+    openInNewTab: false,
   },
 ] as const;
 
@@ -127,6 +155,10 @@ function computeActiveKey(pathname: string, type: string | null): string {
       return 'home';
     case '/search':
       return 'search';
+    case '/netdisk':
+      return 'netdisk';
+    case '/source-browser':
+      return 'source-browser';
     case '/live':
       return 'live';
     default:
@@ -208,7 +240,7 @@ function TopNavbar() {
     >
       <div className='mx-auto max-w-7xl px-4'>
         {/* PC 端保留 backdrop-blur 磨砂玻璃效果 */}
-        <div className='mt-2 rounded-2xl border border-white/10 bg-white/80 dark:bg-gray-900/80 md:bg-white/30 md:dark:bg-gray-900/40 shadow-[0_0_1px_0_rgba(255,255,255,0.5),0_0_40px_-10px_rgba(99,102,241,0.5)] backdrop-blur-none md:backdrop-blur-xl'>
+        <div className='mt-2 rounded-2xl border border-white/10 bg-white/85 dark:bg-gray-900/85 md:bg-white/45 md:dark:bg-gray-900/55 shadow-[0_0_1px_0_rgba(255,255,255,0.35),0_8px_20px_-12px_rgba(15,23,42,0.45)] backdrop-blur-none md:backdrop-blur-sm'>
           <nav className='flex items-center justify-between h-14 px-3'>
             {/* Left: Logo */}
             <div className='flex items-center gap-2 min-w-0'>
@@ -234,40 +266,29 @@ function TopNavbar() {
             <div className='flex items-center justify-center gap-2 flex-wrap'>
               {NAV_ITEMS.map((item) => {
                 const Icon = item.icon;
+                const openInNewTab = item.openInNewTab;
 
                 // 【关键】使用本地状态判断激活，而非 URL
                 // 这是"乐观 UI"的核心：点击即变色，不等 URL
                 const active = activeTabKey === item.key;
-
-                // PC端分类页面（电影、剧集等）在新标签页打开，彻底避免状态同步卡顿
-                if (item.openInNewTab) {
-                  return (
-                    <a
-                      key={item.key}
-                      href={item.href}
-                      target='_blank'
-                      rel='noopener noreferrer'
-                      className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm hover:opacity-90 transition-all glass-chip chip-glow chip-theme ${item.chip} ${
-                        active ? 'ring-2 ring-purple-400/60' : ''
-                      }`}
-                      style={{ touchAction: 'manipulation' }}
-                    >
-                      <Icon className='h-4 w-4' />
-                      <span>{item.label}</span>
-                    </a>
-                  );
-                }
+                const activeRingClass =
+                  item.key === 'source-browser'
+                    ? 'ring-2 ring-emerald-400/70'
+                    : 'ring-2 ring-purple-400/60';
 
                 return (
-                  // 首页、搜索等不需要新标签页的，保持原有行为
                   <FastLink
                     key={item.key}
                     href={item.href}
                     prefetch={false}
-                    useTransitionNav
-                    onClick={handleTabClick(item.key)}
+                    useTransitionNav={!openInNewTab}
+                    onClick={
+                      openInNewTab ? undefined : handleTabClick(item.key)
+                    }
+                    target={openInNewTab ? '_blank' : undefined}
+                    rel={openInNewTab ? 'noopener noreferrer' : undefined}
                     className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm hover:opacity-90 transition-all glass-chip chip-glow chip-theme ${item.chip} ${
-                      active ? 'ring-2 ring-purple-400/60' : ''
+                      active ? activeRingClass : ''
                     }`}
                   >
                     <Icon className='h-4 w-4' />

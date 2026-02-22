@@ -8,7 +8,7 @@ console.log(`Original: ${text}`);
 console.log(`Converted: ${converted}`);
 
 if (converted === '斗破苍穹') {
-    console.log('SUCCESS');
+  console.log('SUCCESS');
 } else {
-    console.log('FAILURE');
+  console.log('FAILURE');
 }

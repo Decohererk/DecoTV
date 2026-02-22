@@ -2,6 +2,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
+import { persistAdminConfigMutation } from '@/lib/admin-config-mutation';
 import { verifyApiAuth } from '@/lib/auth';
 import { getConfig } from '@/lib/config';
 import { db } from '@/lib/db';
@@ -512,8 +513,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: '未知操作' }, { status: 400 });
     }
 
-    // 将更新后的配置写入数据库
-    await db.saveAdminConfig(adminConfig);
+    await persistAdminConfigMutation(adminConfig);
 
     return NextResponse.json(
       { ok: true },

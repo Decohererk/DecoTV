@@ -73,7 +73,7 @@ export async function GET(req: NextRequest) {
           modeSupported: false,
         },
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

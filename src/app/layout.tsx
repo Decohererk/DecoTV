@@ -7,6 +7,7 @@ import './globals.css';
 
 import { getConfig } from '@/lib/config';
 
+import { DownloadManagerProvider } from '@/contexts/DownloadManagerContext';
 import { GlobalCacheProvider } from '@/contexts/GlobalCacheContext';
 
 import { GlobalErrorIndicator } from '../components/GlobalErrorIndicator';
@@ -134,14 +135,16 @@ export default async function RootLayout({
             enableSystem
             disableTransitionOnChange
           >
-            <SiteProvider siteName={siteName} announcement={announcement}>
-              <ParticleBackground />
-              <NavbarGate>
-                <TopNavbar />
-              </NavbarGate>
-              {children}
-              <GlobalErrorIndicator />
-            </SiteProvider>
+            <DownloadManagerProvider>
+              <SiteProvider siteName={siteName} announcement={announcement}>
+                <ParticleBackground />
+                <NavbarGate>
+                  <TopNavbar />
+                </NavbarGate>
+                {children}
+                <GlobalErrorIndicator />
+              </SiteProvider>
+            </DownloadManagerProvider>
           </ThemeProvider>
         </GlobalCacheProvider>
       </body>

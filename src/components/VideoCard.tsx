@@ -8,7 +8,6 @@ import {
   Radio,
   Trash2,
 } from 'lucide-react';
-import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import React, {
   forwardRef,
@@ -31,6 +30,7 @@ import {
 import { processImageUrl } from '@/lib/utils';
 import { useLongPress } from '@/hooks/useLongPress';
 
+import ExternalImage from '@/components/ExternalImage';
 import { ImagePlaceholder } from '@/components/ImagePlaceholder';
 import MobileActionSheet from '@/components/MobileActionSheet';
 import { SimpleRatingBadge } from '@/components/RatingBadge';
@@ -63,6 +63,9 @@ export type VideoCardHandle = {
   setDoubanId: (id?: number) => void;
 };
 
+const POSTER_BLUR_DATA_URL =
+  'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+
 const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
   function VideoCard(
     {
@@ -92,6 +95,8 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
     const [favorited, setFavorited] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [showMobileActions, setShowMobileActions] = useState(false);
+    const [isMobileActionSheetMounted, setIsMobileActionSheetMounted] =
+      useState(false);
     const [searchFavorited, setSearchFavorited] = useState<boolean | null>(
       null,
     ); // 搜索结果的收藏状态
@@ -127,6 +132,7 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
 
     const actualTitle = title;
     const actualPoster = poster;
+    const processedPoster = processImageUrl(actualPoster);
     const actualSource = source;
     const actualId = id;
     const actualDoubanId = dynamicDoubanId;
@@ -138,6 +144,15 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
         ? 'movie'
         : 'tv'
       : type;
+
+    const posterFetchPriority = useMemo(() => {
+      if (from === 'douban' || from === 'search') return 'auto' as const;
+      return 'low' as const;
+    }, [from]);
+
+    useEffect(() => {
+      setIsLoading(false);
+    }, [processedPoster]);
 
     // 获取收藏状态（搜索结果页面不检查）
     useEffect(() => {
@@ -335,6 +350,7 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
       if (!showMobileActions) {
         // 防止重复触发
         // 立即显示菜单，避免等待数据加载导致动画卡顿
+        setIsMobileActionSheetMounted(true);
         setShowMobileActions(true);
 
         // 异步检查收藏状态，不阻塞菜单显示
@@ -576,7 +592,7 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
           - 解决用户反馈"点击无反应"的体验问题
         */}
         <div
-          className='group relative w-full rounded-lg bg-transparent cursor-pointer transition-all duration-150 ease-out hover:shadow-lg hover:shadow-purple-500/20 hover:z-500 active:scale-95 active:opacity-80'
+          className='group relative w-full rounded-lg bg-transparent cursor-pointer transition-all duration-150 ease-out hover:shadow-sm hover:shadow-black/20 hover:z-500 active:scale-95 active:opacity-80'
           onClick={handleClick}
           {...longPressProps}
           style={
@@ -591,8 +607,7 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
               // 禁用右键菜单和长按菜单
               pointerEvents: 'auto',
               // 【关键】GPU 加速：创建独立合成层
-              transform: 'translate3d(0, 0, 0)',
-              willChange: 'transform, box-shadow',
+              contain: 'layout style paint',
             } as React.CSSProperties
           }
           onContextMenu={(e) => {
@@ -601,6 +616,7 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
             e.stopPropagation();
 
             // 右键弹出操作菜单
+            setIsMobileActionSheetMounted(true);
             setShowMobileActions(true);
 
             // 异步检查收藏状态，不阻塞菜单显示
@@ -652,25 +668,26 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
               - 告诉浏览器不同视口下的实际显示尺寸
               - 优化响应式图片加载，避免下载过大图片
             */}
-            <Image
-              src={processImageUrl(actualPoster)}
+            <ExternalImage
+              src={processedPoster}
               alt={actualTitle}
               fill
-              className={origin === 'live' ? 'object-contain' : 'object-cover'}
+              className={`${
+                origin === 'live' ? 'object-contain' : 'object-cover'
+              } transition-opacity duration-300 ${
+                isLoading ? 'opacity-100' : 'opacity-0'
+              }`}
               referrerPolicy='no-referrer'
               loading='lazy'
+              fetchPriority={posterFetchPriority}
               decoding='async'
-              sizes='(max-width: 640px) 33vw, (max-width: 1024px) 20vw, 15vw'
+              sizes='(max-width: 640px) 31vw, (max-width: 1024px) 18vw, 12vw'
+              placeholder={from === 'douban' ? 'empty' : 'blur'}
+              blurDataURL={POSTER_BLUR_DATA_URL}
               onLoad={() => setIsLoading(true)}
-              onError={(e) => {
+              onError={() => {
                 // 图片加载失败时的重试机制
-                const img = e.target as HTMLImageElement;
-                if (!img.dataset.retried) {
-                  img.dataset.retried = 'true';
-                  setTimeout(() => {
-                    img.src = processImageUrl(actualPoster);
-                  }, 2000);
-                }
+                setIsLoading(true);
               }}
               style={
                 {
@@ -809,7 +826,7 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
               actualYear !== 'unknown' &&
               actualYear.trim() !== '' && (
                 <div
-                  className='absolute top-2 bg-black/50 text-white text-xs font-medium px-2 py-1 rounded backdrop-blur-sm shadow-sm transition-all duration-300 ease-out group-hover:opacity-90 left-2'
+                  className='absolute top-2 bg-black/75 text-white text-xs font-medium px-2 py-1 rounded shadow-sm transition-all duration-300 ease-out group-hover:opacity-90 left-2'
                   style={
                     {
                       WebkitUserSelect: 'none',
@@ -852,13 +869,13 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
                       EP {String(currentEpisode).padStart(2, '0')}
                     </span>
                     {/* 右侧：总集数 - 半透明黑背景 */}
-                    <span className='flex items-center bg-black/70 backdrop-blur-sm px-1.5 py-0.5 text-[10px] font-medium text-white/60'>
+                    <span className='flex items-center bg-black/80 px-1.5 py-0.5 text-[10px] font-medium text-white/60'>
                       / {actualEpisodes}
                     </span>
                   </>
                 ) : (
                   /* 仅显示总集数 */
-                  <span className='flex items-center bg-black/70 backdrop-blur-sm px-2 py-0.5 text-[10px] font-medium text-white/80'>
+                  <span className='flex items-center bg-black/80 px-2 py-0.5 text-[10px] font-medium text-white/80'>
                     {actualEpisodes} 集
                   </span>
                 )}
@@ -1019,7 +1036,7 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
                             }}
                           >
                             <div
-                              className='bg-gray-800/90 backdrop-blur-sm text-white text-xs sm:text-xs rounded-lg shadow-xl border border-white/10 p-1.5 sm:p-2 min-w-25 sm:min-w-30 max-w-35 sm:max-w-50 overflow-hidden'
+                              className='bg-gray-800/95 text-white text-xs sm:text-xs rounded-lg shadow-lg border border-white/10 p-1.5 sm:p-2 min-w-25 sm:min-w-30 max-w-35 sm:max-w-50 overflow-hidden'
                               style={
                                 {
                                   WebkitUserSelect: 'none',
@@ -1219,23 +1236,26 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
         </div>
 
         {/* 操作菜单 - 支持右键和长按触发 */}
-        <MobileActionSheet
-          isOpen={showMobileActions}
-          onClose={() => setShowMobileActions(false)}
-          title={actualTitle}
-          poster={processImageUrl(actualPoster)}
-          actions={mobileActions}
-          sources={
-            isAggregate && dynamicSourceNames
-              ? Array.from(new Set(dynamicSourceNames))
-              : undefined
-          }
-          isAggregate={isAggregate}
-          sourceName={source_name}
-          currentEpisode={currentEpisode}
-          totalEpisodes={actualEpisodes}
-          origin={origin}
-        />
+        {isMobileActionSheetMounted && (
+          <MobileActionSheet
+            isOpen={showMobileActions}
+            onClose={() => setShowMobileActions(false)}
+            onAfterClose={() => setIsMobileActionSheetMounted(false)}
+            title={actualTitle}
+            poster={processImageUrl(actualPoster)}
+            actions={mobileActions}
+            sources={
+              isAggregate && dynamicSourceNames
+                ? Array.from(new Set(dynamicSourceNames))
+                : undefined
+            }
+            isAggregate={isAggregate}
+            sourceName={source_name}
+            currentEpisode={currentEpisode}
+            totalEpisodes={actualEpisodes}
+            origin={origin}
+          />
+        )}
       </>
     );
   },

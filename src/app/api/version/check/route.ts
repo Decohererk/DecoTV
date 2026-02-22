@@ -25,7 +25,7 @@ const FETCH_TIMEOUT = 5000;
  */
 async function fetchWithTimeout(
   url: string,
-  timeout: number
+  timeout: number,
 ): Promise<string | null> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
@@ -89,7 +89,7 @@ async function getLocalTimestamp(): Promise<string> {
 async function getRemoteTimestamp(): Promise<string | null> {
   // 并行请求所有源
   const results = await Promise.allSettled(
-    REMOTE_VERSION_URLS.map((url) => fetchWithTimeout(url, FETCH_TIMEOUT))
+    REMOTE_VERSION_URLS.map((url) => fetchWithTimeout(url, FETCH_TIMEOUT)),
   );
 
   for (const result of results) {
@@ -143,7 +143,7 @@ export async function GET() {
         error: error instanceof Error ? error.message : 'Unknown error',
         timestamp: Date.now(),
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

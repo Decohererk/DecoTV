@@ -1,7 +1,8 @@
 /* eslint-disable no-console */
 import { NextRequest, NextResponse } from 'next/server';
 
-import { getConfig, setCachedConfig } from '@/lib/config';
+import { persistAdminConfigMutation } from '@/lib/admin-config-mutation';
+import { getConfig } from '@/lib/config';
 import { db } from '@/lib/db';
 
 export const runtime = 'nodejs';
@@ -305,8 +306,7 @@ export async function POST(req: NextRequest) {
 
       // 保存配置
       try {
-        await db.saveAdminConfig(config);
-        await setCachedConfig(config);
+        await persistAdminConfigMutation(config);
       } catch (error) {
         console.error('保存用户配置异常:', error);
         // 不影响注册流程

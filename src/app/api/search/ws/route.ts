@@ -119,16 +119,21 @@ export async function GET(request: NextRequest) {
           );
 
           const resultsArrays = await Promise.all(siteResultsPromises);
-          // 展平并去重
-          let results = resultsArrays.flat() as any[];
+          // NOTE: 展平并去重 —— 强制过滤 null/undefined，防止上游返回非标准结构
+          let results = resultsArrays
+            .flat()
+            .filter(
+              (r: any) => r != null && typeof r === 'object' && r.id,
+            ) as any[];
           const uniqueMap = new Map();
           results.forEach((r) => uniqueMap.set(r.id, r));
           results = Array.from(uniqueMap.values());
 
           // 成人内容过滤
-          let filteredResults = results;
+          let filteredResults: any[] = results;
           if (!config.SiteConfig.DisableYellowFilter) {
-            filteredResults = results.filter((result) => {
+            filteredResults = (results ?? []).filter((result: any) => {
+              if (!result) return false;
               const typeName = result.type_name || '';
               // 检查源是否标记为成人资源
               if (site.is_adult) {
@@ -141,8 +146,21 @@ export async function GET(request: NextRequest) {
             });
           }
 
+          // NOTE: 无论过滤结果如何，确保 filteredResults 始终为有效数组
+          filteredResults = Array.isArray(filteredResults)
+            ? filteredResults
+            : [];
+
           // 🎯 智能排序：按相关性对该源的结果排序
-          filteredResults = rankSearchResults(filteredResults, normalizedQuery);
+          try {
+            filteredResults = rankSearchResults(
+              filteredResults,
+              normalizedQuery,
+            );
+          } catch (rankError) {
+            console.warn(`排序失败 ${site.name}:`, rankError);
+            // 排序失败时保持过滤后的原始顺序
+          }
 
           // 发送该源的搜索结果
           completedSources++;

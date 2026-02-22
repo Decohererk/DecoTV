@@ -134,37 +134,49 @@ export function rankSearchResults(
   results: SearchResult[],
   query: string,
 ): SearchResult[] {
-  if (!results || results.length === 0) return [];
+  // NOTE: 终极防御 —— 确保入参始终为有效数组，过滤 null/undefined 条目
+  if (!Array.isArray(results) || results.length === 0) return [];
 
-  // 计算每个结果的相关性分数
-  const scoredResults = results.map((result) => ({
-    result,
-    score: calculateRelevanceScore(result, query),
-  }));
+  try {
+    // 过滤掉可能混入的 null/undefined 条目
+    const safeResults = results.filter(
+      (r) => r != null && typeof r === 'object' && r.title,
+    );
+    if (safeResults.length === 0) return [];
 
-  // 按分数降序排序
-  scoredResults.sort((a, b) => {
-    // 首先按分数排序
-    if (b.score !== a.score) {
-      return b.score - a.score;
-    }
+    // 计算每个结果的相关性分数
+    const scoredResults = safeResults.map((result) => ({
+      result,
+      score: calculateRelevanceScore(result, query),
+    }));
 
-    // 分数相同时，按年份倒序（新的在前）
-    const yearA = parseInt(a.result.year || '0', 10);
-    const yearB = parseInt(b.result.year || '0', 10);
-    if (yearB !== yearA) {
-      return yearB - yearA;
-    }
+    // 按分数降序排序
+    scoredResults.sort((a, b) => {
+      // 首先按分数排序
+      if (b.score !== a.score) {
+        return b.score - a.score;
+      }
 
-    // 年份也相同时，按标题字母顺序
-    return a.result.title.localeCompare(b.result.title);
-  });
+      // 分数相同时，按年份倒序（新的在前）
+      const yearA = parseInt(a.result.year || '0', 10);
+      const yearB = parseInt(b.result.year || '0', 10);
+      if (yearB !== yearA) {
+        return yearB - yearA;
+      }
 
-  const filtered = scoredResults.filter((item) => item.score > 0);
-  const finalResults = filtered.length > 0 ? filtered : scoredResults;
+      // 年份也相同时，按标题字母顺序
+      return (a.result.title || '').localeCompare(b.result.title || '');
+    });
 
-  // 返回排序后的结果
-  return finalResults.map((item) => item.result);
+    const filtered = scoredResults.filter((item) => item.score > 0);
+    const finalResults = filtered.length > 0 ? filtered : scoredResults;
+
+    // 返回排序后的结果
+    return finalResults.map((item) => item.result);
+  } catch {
+    // FIXME: 排序引擎异常时返回原数组，绝不崩溃
+    return results.filter((r) => r != null);
+  }
 }
 
 /**

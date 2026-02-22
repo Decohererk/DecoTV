@@ -1,10 +1,11 @@
 'use client';
 
 import { ExternalLink, MessageCircle, Star, User } from 'lucide-react';
-import Image from 'next/image';
 import { memo, useState } from 'react';
 
 import type { DoubanComment } from '@/hooks/useDoubanInfo';
+
+import ExternalImage from '@/components/ExternalImage';
 
 // ============================================================================
 // Types
@@ -87,7 +88,7 @@ const CommentCard = memo(function CommentCard({
         {/* 头像 */}
         <div className='relative w-10 h-10 rounded-full overflow-hidden bg-gray-200 dark:bg-gray-700 shrink-0'>
           {comment.author.avatar && !avatarError ? (
-            <Image
+            <ExternalImage
               src={comment.author.avatar}
               alt={comment.author.name}
               fill

@@ -24,7 +24,7 @@ interface VersionCheckResponse {
 
 export default function VersionChecker() {
   const [versionData, setVersionData] = useState<VersionCheckResponse | null>(
-    null
+    null,
   );
   const [isChecking, setIsChecking] = useState(false);
   const [lastCheck, setLastCheck] = useState<Date | null>(null);

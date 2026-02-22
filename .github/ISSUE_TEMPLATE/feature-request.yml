@@ -1,0 +1,60 @@
+name: ✨ 功能建议
+description: 提出新功能想法或改进建议
+title: '[Feat]: '
+labels: ['type: feature', 'status: needs-triage']
+body:
+  - type: checkboxes
+    id: duplicate-check
+    attributes:
+      label: 查重确认
+      options:
+        - label: 我已确认没有类似的功能建议。
+          required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 功能描述
+      description: 请描述当前痛点（解决了什么问题）以及你的建议方案。
+      placeholder: |
+        痛点 (Problemo)：
+        ...
+
+        建议方案 (Solution)：
+        ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: context
+    attributes:
+      label: 适用场景
+      options:
+        - 全平台通用 (All Platforms)
+        - 仅移动端 (Mobile Only)
+        - 仅PC/桌面端 (Desktop Only)
+        - 仅管理后台 (Admin Panel)
+        - Docker部署 (包括 NAS/VPS)
+        - Serverless部署 (Vercel/Zeabur/ClawCloud等)
+        - 其他 (Other)
+    validations:
+      required: true
+
+  - type: input
+    id: other-context
+    attributes:
+      label: 其他场景说明
+      description: 如果您选择了“其他”，请务必在此详细说明适用范围。
+      placeholder: 例如：仅在使用 Nginx 反代时，或仅在 TV 模式下...
+
+  - type: textarea
+    id: visuals
+    attributes:
+      label: 图示
+      description: 如果有 UI 改动，请提供草图或参考图。
+
+  - type: textarea
+    id: other
+    attributes:
+      label: 其他
+      description: 补充说明或替代方案。

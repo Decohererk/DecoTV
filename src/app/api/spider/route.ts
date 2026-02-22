@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
         error: 'Spider JAR service error',
         message: error instanceof Error ? error.message : 'Unknown error',
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

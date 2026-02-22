@@ -4,7 +4,7 @@
 
 import { ChevronRight } from 'lucide-react';
 import Link from 'next/link';
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 
 import {
   clearAllFavorites,
@@ -37,6 +37,19 @@ function HomeClient() {
   const hotTvShows = homeData?.hotTvShows ?? [];
   const hotVarietyShows = homeData?.hotVarietyShows ?? [];
   const bangumiCalendarData = homeData?.bangumiCalendar ?? [];
+  const HOME_SECTION_LIMIT = 24;
+  const hotMoviesPreview = useMemo(
+    () => hotMovies.slice(0, HOME_SECTION_LIMIT),
+    [hotMovies],
+  );
+  const hotTvShowsPreview = useMemo(
+    () => hotTvShows.slice(0, HOME_SECTION_LIMIT),
+    [hotTvShows],
+  );
+  const hotVarietyShowsPreview = useMemo(
+    () => hotVarietyShows.slice(0, HOME_SECTION_LIMIT),
+    [hotVarietyShows],
+  );
 
   // 只在无缓存时显示骨架屏，有缓存时后台静默更新
   const loading = homeLoading && !homeData;
@@ -137,7 +150,7 @@ function HomeClient() {
       {/* Hero Section */}
       <div className='relative pt-20 pb-10 sm:pt-32 sm:pb-16 overflow-hidden'>
         {/* Background Ambient Light */}
-        <div className='absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-75 h-75 sm:w-150 sm:h-150 bg-purple-500/20 rounded-full blur-[80px] sm:blur-[120px] -z-10 pointer-events-none animate-pulse'></div>
+        <div className='absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-75 h-75 sm:w-150 sm:h-150 bg-purple-500/20 rounded-full blur-[48px] sm:blur-[72px] -z-10 pointer-events-none animate-pulse'></div>
 
         <div className='flex flex-col items-center justify-center text-center px-4'>
           <div className='relative group cursor-default'>
@@ -148,7 +161,7 @@ function HomeClient() {
           </div>
 
           <div className='mt-8 animate-fade-in-up'>
-            <div className='inline-flex items-center gap-3 px-6 py-2.5 rounded-full bg-white/50 dark:bg-black/30 backdrop-blur-md border border-white/20 dark:border-white/10 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-0.5'>
+            <div className='inline-flex items-center gap-3 px-6 py-2.5 rounded-full bg-white/82 dark:bg-black/72 border border-white/20 dark:border-white/10 shadow-md transition-all duration-300 hover:-translate-y-0.5'>
               <span className='text-base sm:text-lg font-medium bg-linear-to-r from-gray-800 to-gray-600 dark:from-gray-100 dark:to-gray-300 bg-clip-text text-transparent'>
                 发现
               </span>
@@ -251,7 +264,7 @@ function HomeClient() {
                         </div>
                       ))
                     : // 显示真实数据
-                      hotMovies.map((movie, index) => (
+                      hotMoviesPreview.map((movie, index) => (
                         <div
                           key={index}
                           className='min-w-24 w-24 sm:min-w-45 sm:w-44'
@@ -299,7 +312,7 @@ function HomeClient() {
                         </div>
                       ))
                     : // 显示真实数据
-                      hotTvShows.map((show, index) => (
+                      hotTvShowsPreview.map((show, index) => (
                         <div
                           key={index}
                           className='min-w-24 w-24 sm:min-w-45 sm:w-44'
@@ -371,29 +384,31 @@ function HomeClient() {
                           (anime) => anime && anime.id,
                         );
 
-                        return validAnimes.map((anime, index) => (
-                          <div
-                            key={`${anime.id}-${index}`}
-                            className='min-w-24 w-24 sm:min-w-45 sm:w-44'
-                          >
-                            <VideoCard
-                              from='douban'
-                              title={anime.name_cn || anime.name}
-                              poster={
-                                anime.images?.large ||
-                                anime.images?.common ||
-                                anime.images?.medium ||
-                                anime.images?.small ||
-                                anime.images?.grid ||
-                                '/logo.png'
-                              }
-                              douban_id={anime.id}
-                              rate={anime.rating?.score?.toFixed(1) || ''}
-                              year={anime.air_date?.split('-')?.[0] || ''}
-                              isBangumi={true}
-                            />
-                          </div>
-                        ));
+                        return validAnimes
+                          .slice(0, HOME_SECTION_LIMIT)
+                          .map((anime, index) => (
+                            <div
+                              key={`${anime.id}-${index}`}
+                              className='min-w-24 w-24 sm:min-w-45 sm:w-44'
+                            >
+                              <VideoCard
+                                from='douban'
+                                title={anime.name_cn || anime.name}
+                                poster={
+                                  anime.images?.large ||
+                                  anime.images?.common ||
+                                  anime.images?.medium ||
+                                  anime.images?.small ||
+                                  anime.images?.grid ||
+                                  '/logo.png'
+                                }
+                                douban_id={anime.id}
+                                rate={anime.rating?.score?.toFixed(1) || ''}
+                                year={anime.air_date?.split('-')?.[0] || ''}
+                                isBangumi={true}
+                              />
+                            </div>
+                          ));
                       })()}
                 </ScrollableRow>
               </section>
@@ -427,7 +442,7 @@ function HomeClient() {
                         </div>
                       ))
                     : // 显示真实数据
-                      hotVarietyShows.map((show, index) => (
+                      hotVarietyShowsPreview.map((show, index) => (
                         <div
                           key={index}
                           className='min-w-24 w-24 sm:min-w-45 sm:w-44'
@@ -453,7 +468,7 @@ function HomeClient() {
       </div>
       {announcement && showAnnouncement && (
         <div
-          className={`fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm dark:bg-black/70 p-4 transition-opacity duration-300 ${
+          className={`fixed inset-0 z-50 flex items-center justify-center bg-black/70 dark:bg-black/80 p-4 transition-opacity duration-300 ${
             showAnnouncement ? '' : 'opacity-0 pointer-events-none'
           }`}
           onTouchStart={(e) => {

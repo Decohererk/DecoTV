@@ -2,9 +2,9 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
+import { persistAdminConfigMutation } from '@/lib/admin-config-mutation';
 import { verifyApiAuth } from '@/lib/auth';
 import { getConfig, getLocalModeConfig } from '@/lib/config';
-import { db } from '@/lib/db';
 
 export const runtime = 'nodejs';
 
@@ -28,6 +28,7 @@ export async function POST(request: NextRequest) {
         DoubanImageProxy,
         DisableYellowFilter,
         FluidSearch,
+        LoginBackground,
       } = body as {
         SiteName: string;
         Announcement: string;
@@ -39,6 +40,7 @@ export async function POST(request: NextRequest) {
         DoubanImageProxy: string;
         DisableYellowFilter: boolean;
         FluidSearch: boolean;
+        LoginBackground?: string;
       };
 
       const localConfig = getLocalModeConfig();
@@ -53,6 +55,7 @@ export async function POST(request: NextRequest) {
         DoubanImageProxy,
         DisableYellowFilter,
         FluidSearch,
+        LoginBackground,
       };
       return NextResponse.json({
         message: '站点配置更新成功（本地模式）',
@@ -82,6 +85,7 @@ export async function POST(request: NextRequest) {
       DoubanImageProxy,
       DisableYellowFilter,
       FluidSearch,
+      LoginBackground,
     } = body as {
       SiteName: string;
       Announcement: string;
@@ -93,6 +97,7 @@ export async function POST(request: NextRequest) {
       DoubanImageProxy: string;
       DisableYellowFilter: boolean;
       FluidSearch: boolean;
+      LoginBackground?: string;
     };
 
     // 参数校验
@@ -136,10 +141,10 @@ export async function POST(request: NextRequest) {
       DoubanImageProxy,
       DisableYellowFilter,
       FluidSearch,
+      LoginBackground: LoginBackground || '',
     };
 
-    // 写入数据库
-    await db.saveAdminConfig(adminConfig);
+    await persistAdminConfigMutation(adminConfig);
 
     return NextResponse.json(
       { ok: true },

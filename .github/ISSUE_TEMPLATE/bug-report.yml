@@ -1,0 +1,115 @@
+name: 🐛 Bug 反馈
+description: 提交 Bug 报告帮助我们改进 DecoTV
+title: '[Bug]: '
+labels: ['type: bug', 'status: needs-triage']
+body:
+  - type: checkboxes
+    id: duplicate-check
+    attributes:
+      label: 查重确认
+      options:
+        - label: 我已搜索过现有 Issue，确认这不是重复提交。
+          required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 请详细描述 Bug，包括预期行为和实际行为。
+      placeholder: |
+        预期行为：
+        ...
+
+        实际行为：
+        ...
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: DecoTV 版本号
+      placeholder: 例如 v1.0.0 或 commit hash
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: 部署环境
+      options:
+        - Docker (本地 / Linux / Windows)
+        - Docker (NAS - 飞牛 fnOS / 群晖 / 极空间)
+        - Vercel (Serverless)
+        - Zeabur
+        - ClawCloud
+        - 源码部署 (Source Code)
+        - 其他 (Other)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: storage
+    attributes:
+      label: 数据存储方式
+      description: 使用哪种服务来存储数据/缓存？
+      options:
+        - Kvrocks (Docker 默认内置)
+        - Redis (自建/独立部署)
+        - Upstash (Serverless Redis)
+        - 其他
+    validations:
+      required: true
+
+  - type: input
+    id: other-env
+    attributes:
+      label: 其他环境说明
+      description: 如果您在“部署环境”或“数据存储”中选择了“其他”，请务必在此详细说明。
+      placeholder: 例如：使用 K8s 集群部署，或使用 Keydb 替代 Redis...
+
+  - type: input
+    id: browser
+    attributes:
+      label: 浏览器及版本
+      placeholder: 例如 Chrome 120, Safari 17, 微信内置浏览器等
+    validations:
+      required: true
+
+  - type: dropdown
+    id: device
+    attributes:
+      label: 设备类型
+      options:
+        - PC / 桌面端
+        - Mobile / 移动端
+        - Tablet / 平板
+        - TV Box / 电视盒子
+        - 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 图示或日志
+      description: 请上传截图或粘贴控制台报错日志 (Console Log)。
+      placeholder: 在此粘贴截图或日志...
+      render: shell
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: 优先级评估
+      options:
+        - 🔴 严重 (Critical - 无法运行/数据丢失)
+        - 🟡 一般 (Normal - 功能异常但不影响核心使用)
+        - 🟢 轻微 (Minor - UI微调/文案错误)
+    validations:
+      required: true
+
+  - type: textarea
+    id: remarks
+    attributes:
+      label: 备注
+      placeholder: 任何其他需要补充的信息...

@@ -2,10 +2,22 @@
 
 'use client';
 
-import { Cat, Clover, Film, Home, Radio, Search, Star, Tv } from 'lucide-react';
+import {
+  Cat,
+  Cloud,
+  Clover,
+  Film,
+  Home,
+  Radio,
+  Search,
+  Star,
+  Tv,
+} from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { ComponentType, useCallback, useEffect, useRef, useState } from 'react';
+
+import SourceBrowserIcon from './icons/SourceBrowserIcon';
 
 // 简单的 className 合并函数
 function cn(...classes: (string | boolean | undefined | null)[]): string {
@@ -13,7 +25,7 @@ function cn(...classes: (string | boolean | undefined | null)[]): string {
 }
 
 interface NavItem {
-  icon: typeof Home;
+  icon: ComponentType<{ className?: string }>;
   label: string;
   href: string;
   // 选中状态的渐变色配置
@@ -60,6 +72,22 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
       activeGradient: 'bg-linear-to-r from-blue-500 to-cyan-500',
       activeTextColor: 'text-white',
       hoverBg: 'hover:bg-blue-500/20',
+    },
+    {
+      icon: SourceBrowserIcon,
+      label: '源浏览器',
+      href: '/source-browser',
+      activeGradient: 'bg-linear-to-r from-emerald-500 to-teal-500',
+      activeTextColor: 'text-white',
+      hoverBg: 'hover:bg-emerald-500/20',
+    },
+    {
+      icon: Cloud,
+      label: '网盘',
+      href: '/netdisk',
+      activeGradient: 'bg-linear-to-r from-sky-500 to-teal-500',
+      activeTextColor: 'text-white',
+      hoverBg: 'hover:bg-sky-500/20',
     },
     {
       icon: Film,
@@ -142,6 +170,10 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
       if (href === '/search' && decodedActive.startsWith('/search'))
         return true;
 
+      // 网盘页特殊处理
+      if (href === '/netdisk' && decodedActive.startsWith('/netdisk'))
+        return true;
+
       // 直播页特殊处理
       if (href === '/live' && decodedActive.startsWith('/live')) return true;
 
@@ -190,10 +222,10 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
         'w-auto max-w-[92vw]',
         // 外观样式 - 磨砂玻璃胶囊 (亮色/暗色自适应)
         'rounded-full',
-        'bg-white/80 dark:bg-black/75',
-        'backdrop-blur-xl',
+        'bg-white/92 dark:bg-black/90',
+        'backdrop-blur-[6px]',
         'border border-black/5 dark:border-white/10',
-        'shadow-xl shadow-black/5 dark:shadow-2xl dark:shadow-black/40',
+        'shadow-lg shadow-black/8 dark:shadow-xl dark:shadow-black/35',
       )}
       style={{
         // 距离底部安全区

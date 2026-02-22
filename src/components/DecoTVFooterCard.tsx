@@ -13,7 +13,7 @@ const DecoTVFooterCard = () => {
       ([entry]) => {
         setIsVisible(entry.isIntersecting);
       },
-      { threshold: 0.1 }
+      { threshold: 0.1 },
     );
 
     const element = document.getElementById('deco-footer-card');

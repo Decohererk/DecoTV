@@ -77,6 +77,11 @@ async function searchWithCache(
 
     // 处理结果数据
     const allResults = data.list.map((item: ApiSearchItem) => {
+      // 防止上游返回的条目缺少必要字段导致崩溃
+      if (!item || !item.vod_id || !item.vod_name) {
+        return null;
+      }
+
       let episodes: string[] = [];
       let titles: string[] = [];
 
@@ -124,9 +129,10 @@ async function searchWithCache(
       };
     });
 
-    // 过滤掉集数为 0 的结果
+    // 过滤掉无效条目和集数为 0 的结果
     const results = allResults.filter(
-      (result: SearchResult) => result.episodes.length > 0,
+      (result: SearchResult | null) =>
+        result !== null && result.episodes.length > 0,
     );
 
     const pageCount = page === 1 ? data.pagecount || 1 : undefined;

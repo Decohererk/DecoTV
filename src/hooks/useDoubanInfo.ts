@@ -1,7 +1,9 @@
 /* eslint-disable no-console */
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+
+import { generateCacheKey, globalCache } from '@/lib/unified-cache';
 
 // ============================================================================
 // Types
@@ -67,7 +69,7 @@ export interface DoubanComment {
     max: number;
     value: number;
     min: number;
-  };
+  } | null;
   author: {
     id: string;
     uid: string;
@@ -85,62 +87,128 @@ export interface DoubanCommentsResponse {
   comments: DoubanComment[];
 }
 
+/** 推荐影片 */
+export interface DoubanRecommend {
+  id: string;
+  title: string;
+  poster?: string;
+  rate?: string;
+  year?: string;
+}
+
 /** Hook 返回类型 */
 export interface UseDoubanInfoResult {
-  // 详情数据
   detail: DoubanMovieDetail | null;
   detailLoading: boolean;
   detailError: Error | null;
 
-  // 评论数据
   comments: DoubanComment[];
   commentsLoading: boolean;
   commentsError: Error | null;
   commentsTotal: number;
 
-  // 刷新函数
+  recommends: DoubanRecommend[];
+  recommendsLoading: boolean;
+  recommendsError: Error | null;
+
   refreshDetail: () => Promise<void>;
   refreshComments: () => Promise<void>;
+  refreshRecommends: () => Promise<void>;
 }
 
-// ============================================================================
-// Fetch Helpers
-// ============================================================================
+type DoubanDetailProxyResponse = DoubanMovieDetail & {
+  hotComments?: DoubanComment[];
+  recommendations?: Array<{
+    id: string;
+    title: string;
+    images?: { small?: string; medium?: string; large?: string };
+    alt?: string;
+  }>;
+};
 
-/**
- * 通过代理接口获取豆瓣电影详情
- */
-async function fetchDoubanDetail(
-  doubanId: string | number,
-): Promise<DoubanMovieDetail> {
-  const response = await fetch(
-    `/api/douban/proxy?path=movie/subject/${doubanId}`,
-  );
+const DOUBAN_PROXY_CACHE_TTL_SECONDS = 3600;
+const inFlightProxyRequests = new Map<string, Promise<unknown>>();
 
-  if (!response.ok) {
-    throw new Error(`获取详情失败: ${response.status}`);
-  }
+function getProxyCacheKey(path: string): string {
+  return generateCacheKey('douban-proxy-detail', { path });
+}
 
-  return response.json();
+function readProxyCache<T>(path: string): T | null {
+  return globalCache.get<T>(getProxyCacheKey(path));
+}
+
+function writeProxyCache(path: string, data: unknown): void {
+  globalCache.set(getProxyCacheKey(path), data, DOUBAN_PROXY_CACHE_TTL_SECONDS);
 }
 
 /**
- * 通过代理接口获取豆瓣评论
+ * 通过后端代理获取豆瓣数据
+ * 后端代理位于 /api/douban/proxy，可绕过 CORS 限制
  */
-async function fetchDoubanComments(
-  doubanId: string | number,
-  start = 0,
-  count = 6,
-): Promise<DoubanCommentsResponse> {
-  const response = await fetch(
-    `/api/douban/proxy?path=movie/subject/${doubanId}/comments&start=${start}&count=${count}`,
-  );
+async function fetchFromBackendProxy(
+  path: string,
+  timeout = 30000,
+  bypassCache = false,
+): Promise<unknown> {
+  const cacheKey = getProxyCacheKey(path);
+  if (!bypassCache) {
+    const cachedData = readProxyCache<unknown>(path);
+    if (cachedData !== null) {
+      console.log('[useDoubanInfo] 命中本地缓存:', path);
+      return cachedData;
+    }
 
-  if (!response.ok) {
-    throw new Error(`获取评论失败: ${response.status}`);
+    const existingRequest = inFlightProxyRequests.get(cacheKey);
+    if (existingRequest) {
+      console.log('[useDoubanInfo] 复用进行中的请求:', path);
+      return await existingRequest;
+    }
   }
 
-  return response.json();
+  const requestPromise = (async () => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    try {
+      const url = `/api/douban/proxy?path=${encodeURIComponent(path)}`;
+      console.log('[useDoubanInfo] 请求后端代理:', url);
+
+      const response = await fetch(url, {
+        signal: controller.signal,
+        cache: bypassCache ? 'no-store' : 'force-cache',
+        headers: {
+          Accept: 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(
+          '[useDoubanInfo] 后端代理错误:',
+          response.status,
+          errorText,
+        );
+        throw new Error(`请求失败: ${response.status}`);
+      }
+
+      const data = await response.json();
+      writeProxyCache(path, data);
+      console.log('[useDoubanInfo] 后端代理响应成功');
+      return data;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  })();
+
+  if (bypassCache) {
+    return await requestPromise;
+  }
+
+  inFlightProxyRequests.set(cacheKey, requestPromise);
+  try {
+    return await requestPromise;
+  } finally {
+    inFlightProxyRequests.delete(cacheKey);
+  }
 }
 
 // ============================================================================
@@ -149,7 +217,6 @@ async function fetchDoubanComments(
 
 /**
  * 豆瓣信息 Hook
- * 用于并行获取电影详情和评论数据
  *
  * @param doubanId - 豆瓣电影 ID
  * @param options - 配置选项
@@ -157,96 +224,196 @@ async function fetchDoubanComments(
 export function useDoubanInfo(
   doubanId: string | number | null | undefined,
   options: {
-    /** 是否自动获取详情，默认 true */
     fetchDetail?: boolean;
-    /** 是否自动获取评论，默认 true */
     fetchComments?: boolean;
-    /** 评论数量，默认 6 */
+    fetchRecommends?: boolean;
     commentsCount?: number;
   } = {},
 ): UseDoubanInfoResult {
   const {
     fetchDetail: shouldFetchDetail = true,
     fetchComments: shouldFetchComments = true,
-    commentsCount = 6,
+    fetchRecommends: shouldFetchRecommends = true,
   } = options;
 
-  // 详情状态
   const [detail, setDetail] = useState<DoubanMovieDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<Error | null>(null);
 
-  // 评论状态
   const [comments, setComments] = useState<DoubanComment[]>([]);
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [commentsError, setCommentsError] = useState<Error | null>(null);
   const [commentsTotal, setCommentsTotal] = useState(0);
 
-  // 获取详情
+  const [recommends, setRecommends] = useState<DoubanRecommend[]>([]);
+  const [recommendsLoading, setRecommendsLoading] = useState(false);
+  const [recommendsError, setRecommendsError] = useState<Error | null>(null);
+
+  const detailRequestIdRef = useRef(0);
+
+  const applyDetailPayload = useCallback((data: DoubanDetailProxyResponse) => {
+    setDetail(data);
+
+    const nextComments = data.hotComments || [];
+    setComments(nextComments);
+    setCommentsTotal(nextComments.length);
+
+    const transformedRecommends = (data.recommendations || []).map((r) => ({
+      id: r.id,
+      title: r.title,
+      poster: r.images?.large || r.images?.medium || r.images?.small || '',
+      rate: '',
+    }));
+    setRecommends(transformedRecommends);
+  }, []);
+
   const refreshDetail = useCallback(async () => {
     if (!doubanId) return;
 
+    const requestId = ++detailRequestIdRef.current;
+    const detailPath = `movie/subject/${doubanId}`;
+
+    const cachedData = readProxyCache<DoubanDetailProxyResponse>(detailPath);
+    if (cachedData && cachedData.title) {
+      applyDetailPayload(cachedData);
+      setDetailError(null);
+      setDetailLoading(false);
+      setCommentsLoading(false);
+      setRecommendsLoading(false);
+      return;
+    }
+
+    setDetail(null);
+    setComments([]);
+    setCommentsTotal(0);
+    setRecommends([]);
     setDetailLoading(true);
+    setCommentsLoading(true);
+    setRecommendsLoading(true);
     setDetailError(null);
 
     try {
-      const data = await fetchDoubanDetail(doubanId);
-      setDetail(data);
+      console.log('[useDoubanInfo] 获取详情:', doubanId);
+      const data = (await fetchFromBackendProxy(
+        detailPath,
+      )) as DoubanDetailProxyResponse;
+
+      if (requestId !== detailRequestIdRef.current) return;
+      if (data && data.title) {
+        applyDetailPayload(data);
+        console.log('[useDoubanInfo] 详情获取成功:', data.title);
+      } else {
+        throw new Error('无法获取豆瓣数据');
+      }
     } catch (error) {
-      console.error('[useDoubanInfo] Failed to fetch detail:', error);
+      if (requestId !== detailRequestIdRef.current) return;
+      console.error('[useDoubanInfo] 详情获取失败:', error);
       setDetailError(error instanceof Error ? error : new Error('未知错误'));
     } finally {
-      setDetailLoading(false);
+      if (requestId === detailRequestIdRef.current) {
+        setDetailLoading(false);
+        setCommentsLoading(false);
+        setRecommendsLoading(false);
+      }
     }
-  }, [doubanId]);
+  }, [applyDetailPayload, doubanId]);
 
-  // 获取评论
   const refreshComments = useCallback(async () => {
     if (!doubanId) return;
+    if (comments.length > 0) return;
 
     setCommentsLoading(true);
     setCommentsError(null);
 
     try {
-      const data = await fetchDoubanComments(doubanId, 0, commentsCount);
-      setComments(data.comments || []);
-      setCommentsTotal(data.total || 0);
+      console.log('[useDoubanInfo] 获取评论:', doubanId);
+      const data = (await fetchFromBackendProxy(
+        `movie/subject/${doubanId}/comments`,
+      )) as { comments?: DoubanComment[]; total?: number };
+
+      if (data && data.comments) {
+        setComments(data.comments);
+        setCommentsTotal(data.total || data.comments.length);
+        console.log('[useDoubanInfo] 评论获取成功:', data.comments.length);
+      }
     } catch (error) {
-      console.error('[useDoubanInfo] Failed to fetch comments:', error);
+      console.error('[useDoubanInfo] 评论获取失败:', error);
       setCommentsError(error instanceof Error ? error : new Error('未知错误'));
     } finally {
       setCommentsLoading(false);
     }
-  }, [doubanId, commentsCount]);
+  }, [comments.length, doubanId]);
 
-  // 初始化加载
+  const refreshRecommends = useCallback(async () => {
+    if (!doubanId) return;
+    if (recommends.length > 0) return;
+
+    setRecommendsLoading(true);
+    setRecommendsError(null);
+
+    try {
+      console.log('[useDoubanInfo] 获取推荐:', doubanId);
+      const data = (await fetchFromBackendProxy(
+        `movie/subject/${doubanId}/recommendations`,
+      )) as {
+        recommendations?: Array<{
+          id: string;
+          title: string;
+          images?: { large?: string };
+        }>;
+      };
+
+      if (data && data.recommendations) {
+        const transformedRecommends = data.recommendations.map((r) => ({
+          id: r.id,
+          title: r.title,
+          poster: r.images?.large || '',
+          rate: '',
+        }));
+        setRecommends(transformedRecommends);
+        console.log(
+          '[useDoubanInfo] 推荐获取成功:',
+          transformedRecommends.length,
+        );
+      }
+    } catch (error) {
+      console.error('[useDoubanInfo] 推荐获取失败:', error);
+      setRecommendsError(
+        error instanceof Error ? error : new Error('未知错误'),
+      );
+    } finally {
+      setRecommendsLoading(false);
+    }
+  }, [doubanId, recommends.length]);
+
   useEffect(() => {
     if (!doubanId) {
-      // 重置状态
       setDetail(null);
       setComments([]);
       setCommentsTotal(0);
+      setRecommends([]);
       return;
     }
 
-    // 并行请求
-    const promises: Promise<void>[] = [];
-
     if (shouldFetchDetail) {
-      promises.push(refreshDetail());
+      refreshDetail();
+      return;
     }
 
     if (shouldFetchComments) {
-      promises.push(refreshComments());
+      refreshComments();
     }
-
-    Promise.allSettled(promises);
+    if (shouldFetchRecommends) {
+      refreshRecommends();
+    }
   }, [
     doubanId,
-    shouldFetchDetail,
-    shouldFetchComments,
-    refreshDetail,
     refreshComments,
+    refreshDetail,
+    refreshRecommends,
+    shouldFetchComments,
+    shouldFetchDetail,
+    shouldFetchRecommends,
   ]);
 
   return {
@@ -257,8 +424,12 @@ export function useDoubanInfo(
     commentsLoading,
     commentsError,
     commentsTotal,
+    recommends,
+    recommendsLoading,
+    recommendsError,
     refreshDetail,
     refreshComments,
+    refreshRecommends,
   };
 }
 

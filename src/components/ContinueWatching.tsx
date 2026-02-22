@@ -22,6 +22,8 @@ export default function ContinueWatching({ className }: ContinueWatchingProps) {
     (PlayRecord & { key: string })[]
   >([]);
   const [loading, setLoading] = useState(true);
+  const CONTINUE_WATCHING_LIMIT = 24;
+  const visiblePlayRecords = playRecords.slice(0, CONTINUE_WATCHING_LIMIT);
 
   // 处理播放记录数据更新的函数
   const updatePlayRecords = (allRecords: Record<string, PlayRecord>) => {
@@ -33,7 +35,7 @@ export default function ContinueWatching({ className }: ContinueWatchingProps) {
 
     // 按 save_time 降序排序（最新的在前面）
     const sortedRecords = recordsArray.sort(
-      (a, b) => b.save_time - a.save_time
+      (a, b) => b.save_time - a.save_time,
     );
 
     setPlayRecords(sortedRecords);
@@ -62,7 +64,7 @@ export default function ContinueWatching({ className }: ContinueWatchingProps) {
       'playRecordsUpdated',
       (newRecords: Record<string, PlayRecord>) => {
         updatePlayRecords(newRecords);
-      }
+      },
     );
 
     return unsubscribe;
@@ -107,10 +109,7 @@ export default function ContinueWatching({ className }: ContinueWatchingProps) {
         {loading
           ? // 加载状态显示灰色占位数据
             Array.from({ length: 6 }).map((_, index) => (
-              <div
-                key={index}
-                className='min-w-24 w-24 sm:min-w-45 sm:w-44'
-              >
+              <div key={index} className='min-w-24 w-24 sm:min-w-45 sm:w-44'>
                 <div className='relative aspect-2/3 w-full overflow-hidden rounded-lg bg-gray-200 animate-pulse dark:bg-gray-800'>
                   <div className='absolute inset-0 bg-gray-300 dark:bg-gray-700'></div>
                 </div>
@@ -119,7 +118,7 @@ export default function ContinueWatching({ className }: ContinueWatchingProps) {
               </div>
             ))
           : // 显示真实数据
-            playRecords.map((record) => {
+            visiblePlayRecords.map((record) => {
               const { source, id } = parseKey(record.key);
               return (
                 <div
@@ -140,7 +139,7 @@ export default function ContinueWatching({ className }: ContinueWatchingProps) {
                     from='playrecord'
                     onDelete={() =>
                       setPlayRecords((prev) =>
-                        prev.filter((r) => r.key !== record.key)
+                        prev.filter((r) => r.key !== record.key),
                       )
                     }
                     type={record.total_episodes > 1 ? 'tv' : ''}

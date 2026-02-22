@@ -37,6 +37,10 @@ export async function GET(request: NextRequest) {
     EnableRegistration: process.env.NEXT_PUBLIC_ENABLE_REGISTRATION === 'true',
     // 🔒 成人内容过滤状态（新增）
     AdultFilterEnabled: adultFilterEnabled,
+    // 🖼️ 登录页面背景图
+    LoginBackground:
+      config.SiteConfig.LoginBackground ||
+      'https://pan.yyds.nyc.mn/background.png',
     // 提供说明信息
     AdultFilterInfo: {
       enabled: adultFilterEnabled,

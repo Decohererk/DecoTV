@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Telegram 支持 / 私聊
+    url: https://t.me/katelya77
+    about: 如果有更私密的问题，或需要一对一交流，请点击这里。
+  - name: 🛡️ 报告安全漏洞
+    url: https://github.com/Decohererk/DecoTV/blob/main/SECURITY.md
+    about: 发现安全漏洞？请勿公开提交 issue，点击查看安全策略。

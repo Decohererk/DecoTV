@@ -27,7 +27,7 @@ export async function GET(_req: NextRequest) {
         error: 'Proxy error',
         message: error instanceof Error ? error.message : 'Unknown error',
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

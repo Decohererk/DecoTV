@@ -100,7 +100,7 @@ const FAILURE_RESET_INTERVAL = 2 * 60 * 60 * 1000; // 2小时重置失败记录
 async function fetchRemote(
   url: string,
   timeoutMs = 3000,
-  retryCount = 0
+  retryCount = 0,
 ): Promise<Buffer | null> {
   let _lastError: string | null = null;
 
@@ -167,7 +167,7 @@ async function fetchRemote(
       // 网络错误等待后重试
       if (attempt < retryCount) {
         await new Promise((resolve) =>
-          setTimeout(resolve, 1000 * (attempt + 1))
+          setTimeout(resolve, 1000 * (attempt + 1)),
         );
       }
     }
@@ -183,7 +183,7 @@ function md5(buf: Buffer): string {
 }
 
 export async function getSpiderJar(
-  forceRefresh = false
+  forceRefresh = false,
 ): Promise<SpiderJarInfo> {
   const now = Date.now();
 

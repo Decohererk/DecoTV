@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="720" viewBox="0 0 480 720" role="img" aria-label="No cover">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#1e293b" />
+    </linearGradient>
+  </defs>
+  <rect width="480" height="720" fill="url(#bg)" />
+  <g fill="none" stroke="#94a3b8" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" opacity="0.9">
+    <rect x="122" y="206" width="236" height="236" rx="20" />
+    <path d="M166 372l56-56a20 20 0 0128 0l44 44 34-34a20 20 0 0128 0" />
+    <circle cx="205" cy="266" r="20" />
+  </g>
+  <text x="240" y="500" fill="#e2e8f0" font-family="Arial, sans-serif" font-size="36" text-anchor="middle">暂无封面</text>
+</svg>

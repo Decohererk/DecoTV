@@ -2,9 +2,9 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
+import { persistAdminConfigMutation } from '@/lib/admin-config-mutation';
 import { verifyApiAuth } from '@/lib/auth';
 import { getConfig, refineConfig } from '@/lib/config';
-import { db } from '@/lib/db';
 
 export const runtime = 'nodejs';
 
@@ -96,8 +96,7 @@ export async function POST(request: NextRequest) {
     adminConfig.ConfigSubscribtion.LastCheck = lastCheckTime || '';
 
     adminConfig = refineConfig(adminConfig);
-    // 更新配置文件
-    await db.saveAdminConfig(adminConfig);
+    await persistAdminConfigMutation(adminConfig);
     return NextResponse.json({
       success: true,
       message: '配置文件更新成功',

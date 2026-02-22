@@ -3,9 +3,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { AdminConfig } from '@/lib/admin.types';
+import { persistAdminConfigMutation } from '@/lib/admin-config-mutation';
 import { verifyApiAuth } from '@/lib/auth';
-import { invalidateConfigCache } from '@/lib/config';
-import { db } from '@/lib/db';
 
 /**
  * POST /api/admin/config/sync
@@ -37,11 +36,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '缺少配置数据' }, { status: 400 });
     }
 
-    // 保存配置到内存存储
-    await db.saveAdminConfig(config);
-
-    // 清除配置缓存，让后续请求读取新配置
-    invalidateConfigCache();
+    await persistAdminConfigMutation(config);
 
     console.log(
       '[Config Sync] 配置已同步到内存，视频源数量:',

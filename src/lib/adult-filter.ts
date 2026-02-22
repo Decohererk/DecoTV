@@ -1,6 +1,6 @@
 export function resolveAdultFilter(
   searchParams: URLSearchParams,
-  disableYellowFilter: boolean
+  disableYellowFilter: boolean,
 ): boolean {
   let shouldFilterAdult = !disableYellowFilter;
 

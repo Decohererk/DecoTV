@@ -29,7 +29,7 @@ async function handleRequest(request) {
     // 创建新 Headers 对象，排除以 'cf-' 开头的请求头
     const newHeaders = filterHeaders(
       request.headers,
-      (name) => !name.startsWith('cf-')
+      (name) => !name.startsWith('cf-'),
     );
 
     // 创建一个新的请求以访问目标 URL
@@ -54,7 +54,7 @@ async function handleRequest(request) {
         response,
         url.protocol,
         url.host,
-        actualUrlStr
+        actualUrlStr,
       );
     }
 
@@ -78,7 +78,7 @@ async function handleRequest(request) {
       {
         error: error.message,
       },
-      500
+      500,
     );
   }
 }
@@ -112,7 +112,7 @@ async function handleHtmlContent(response, protocol, host, actualUrlStr) {
     originalText,
     protocol,
     host,
-    new URL(actualUrlStr).origin
+    new URL(actualUrlStr).origin,
   );
 
   return modifiedText;

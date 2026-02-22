@@ -1,5 +1,3 @@
-/* eslint-disable @next/next/no-img-element */
-
 import { useRouter } from 'next/navigation';
 import React, {
   useCallback,
@@ -10,7 +8,9 @@ import React, {
 } from 'react';
 
 import { SearchResult } from '@/lib/types';
-import { getVideoResolutionFromM3u8, processImageUrl } from '@/lib/utils';
+import { getVideoResolutionFromM3u8 } from '@/lib/utils';
+
+import ExternalImage from '@/components/ExternalImage';
 
 // 定义视频信息类型
 interface VideoInfo {
@@ -558,16 +558,16 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                       }`.trim()}
                       >
                         {/* 封面 */}
-                        <div className='shrink-0 w-12 h-20 bg-gray-300 dark:bg-gray-600 rounded overflow-hidden'>
+                        <div className='relative shrink-0 w-12 h-20 bg-gray-300 dark:bg-gray-600 rounded overflow-hidden'>
                           {source.episodes && source.episodes.length > 0 && (
-                            <img
-                              src={processImageUrl(source.poster)}
+                            <ExternalImage
+                              src={source.poster || ''}
                               alt={source.title}
-                              className='w-full h-full object-cover'
-                              onError={(e) => {
-                                const target = e.target as HTMLImageElement;
-                                target.style.display = 'none';
-                              }}
+                              fill
+                              className='object-cover'
+                              loading='lazy'
+                              decoding='async'
+                              sizes='48px'
                             />
                           )}
                         </div>

@@ -2,9 +2,9 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
+import { persistAdminConfigMutation } from '@/lib/admin-config-mutation';
 import { getAuthInfoFromCookie } from '@/lib/auth';
 import { getConfig } from '@/lib/config';
-import { db } from '@/lib/db';
 import { refreshLiveChannels } from '@/lib/live';
 
 export const runtime = 'nodejs';
@@ -38,8 +38,7 @@ export async function POST(request: NextRequest) {
     // 等待所有刷新任务完成
     await Promise.all(refreshPromises);
 
-    // 保存配置
-    await db.saveAdminConfig(config);
+    await persistAdminConfigMutation(config);
 
     return NextResponse.json({
       success: true,

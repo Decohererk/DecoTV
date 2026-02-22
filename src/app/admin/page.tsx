@@ -28,11 +28,14 @@ import {
   CheckCircle,
   ChevronDown,
   ChevronUp,
+  Cloud,
   Database,
   Download,
   ExternalLink,
   FileText,
   FolderOpen,
+  MessageSquareText,
+  Package,
   Settings,
   Tv,
   Upload,
@@ -40,15 +43,28 @@ import {
   Video,
 } from 'lucide-react';
 import { GripVertical } from 'lucide-react';
+import dynamic from 'next/dynamic';
+import { useRouter } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-import { AdminConfig } from '@/lib/admin.types';
+import { AdminConfig, DanmuCustomNode } from '@/lib/admin.types';
 import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
+import { DEFAULT_PANSOU_SERVER_URL } from '@/lib/pansou';
 
 import DataMigration from '@/components/DataMigration';
-import ImportExportModal from '@/components/ImportExportModal';
+import type { ImportExportModalProps } from '@/components/ImportExportModal';
 import PageLayout from '@/components/PageLayout';
+import type { PanSouConfigPanelProps } from '@/components/PanSouConfigPanel';
+
+const ImportExportModal = dynamic<ImportExportModalProps>(
+  () => import('../../components/ImportExportModal').then((mod) => mod.default),
+  { ssr: false },
+);
+const PanSouConfigPanel = dynamic<PanSouConfigPanelProps>(
+  () => import('../../components/PanSouConfigPanel').then((mod) => mod.default),
+  { ssr: false },
+);
 
 // 统一按钮样式系统
 const buttonStyles = {
@@ -306,6 +322,8 @@ interface SiteConfig {
   DoubanImageProxy: string;
   DisableYellowFilter: boolean;
   FluidSearch: boolean;
+  // 登录页面背景图
+  LoginBackground: string;
 }
 
 // 视频源数据类型
@@ -3049,6 +3067,38 @@ const VideoSourceConfig = ({
     });
   };
 
+  // 一键选中失效视频源（状态为 no_results 或 invalid）
+  const handleSelectInvalidSources = useCallback(() => {
+    const invalidKeys = validationResults
+      .filter((r) => r.status === 'no_results' || r.status === 'invalid')
+      .map((r) => r.key);
+
+    if (invalidKeys.length === 0) {
+      showAlert({
+        type: 'warning',
+        title: '没有失效的视频源',
+        message: '当前没有检测到失效或无法搜索的视频源',
+        timer: 3000,
+      });
+      return;
+    }
+
+    setSelectedSources(new Set(invalidKeys));
+    showAlert({
+      type: 'success',
+      title: '已选中失效源',
+      message: `已选中 ${invalidKeys.length} 个失效或无法搜索的视频源`,
+      timer: 3000,
+    });
+  }, [validationResults, showAlert]);
+
+  // 获取失效视频源数量
+  const invalidSourceCount = useMemo(() => {
+    return validationResults.filter(
+      (r) => r.status === 'no_results' || r.status === 'invalid',
+    ).length;
+  }, [validationResults]);
+
   // 一键插入CSP模板
   const handleInsertCspTemplate = async () => {
     const cspTemplate = {
@@ -3838,6 +3888,32 @@ const VideoSourceConfig = ({
                 '有效性检测'
               )}
             </button>
+            {/* 选中失效源按钮 - 只在有检测结果且存在失效源时显示 */}
+            {!isValidating && invalidSourceCount > 0 && (
+              <button
+                onClick={handleSelectInvalidSources}
+                className='px-3 py-1 text-sm rounded-lg transition-colors flex items-center space-x-1.5 bg-linear-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white shadow-sm hover:shadow-md'
+                title={`一键选中 ${invalidSourceCount} 个失效或无法搜索的视频源`}
+              >
+                <svg
+                  className='w-4 h-4'
+                  fill='none'
+                  stroke='currentColor'
+                  viewBox='0 0 24 24'
+                >
+                  <path
+                    strokeLinecap='round'
+                    strokeLinejoin='round'
+                    strokeWidth={2}
+                    d='M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z'
+                  />
+                </svg>
+                <span className='hidden sm:inline'>
+                  选中失效源({invalidSourceCount})
+                </span>
+                <span className='sm:hidden'>{invalidSourceCount}</span>
+              </button>
+            )}
             <button
               onClick={handleInsertCspTemplate}
               disabled={isLoading('insertCspTemplate')}
@@ -4122,14 +4198,18 @@ const VideoSourceConfig = ({
       />
 
       {/* 导入导出模态框 */}
-      <ImportExportModal
-        isOpen={importExportModal.isOpen}
-        mode={importExportModal.mode}
-        onClose={() => setImportExportModal({ isOpen: false, mode: 'import' })}
-        onImport={handleImportSources}
-        onExport={handleExportSources}
-        result={importExportModal.result}
-      />
+      {importExportModal.isOpen && (
+        <ImportExportModal
+          isOpen={importExportModal.isOpen}
+          mode={importExportModal.mode}
+          onClose={() =>
+            setImportExportModal({ isOpen: false, mode: 'import' })
+          }
+          onImport={handleImportSources}
+          onExport={handleExportSources}
+          result={importExportModal.result}
+        />
+      )}
 
       {/* 批量操作确认弹窗 */}
       {confirmModal.isOpen &&
@@ -5014,6 +5094,7 @@ const SiteConfigComponent = ({
     DoubanImageProxy: '',
     DisableYellowFilter: false,
     FluidSearch: true,
+    LoginBackground: 'https://pan.yyds.nyc.mn/background.png',
   });
 
   // 豆瓣数据源相关状态
@@ -5076,7 +5157,10 @@ const SiteConfigComponent = ({
           config.SiteConfig.DoubanImageProxyType || 'cmliussss-cdn-tencent',
         DoubanImageProxy: config.SiteConfig.DoubanImageProxy || '',
         DisableYellowFilter: config.SiteConfig.DisableYellowFilter || false,
-        FluidSearch: config.SiteConfig.FluidSearch || true,
+        FluidSearch: config.SiteConfig.FluidSearch ?? true,
+        LoginBackground:
+          config.SiteConfig.LoginBackground ||
+          'https://pan.yyds.nyc.mn/background.png',
       });
     }
   }, [config]);
@@ -5524,6 +5608,60 @@ const SiteConfigComponent = ({
         <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
           启用后搜索结果将实时流式返回，提升用户体验。
         </p>
+      </div>
+
+      {/* 登录页面背景图设置 */}
+      <div className='space-y-4 p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700'>
+        <div className='flex items-center gap-2'>
+          <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+            🖼️ 登录页面背景设置
+          </h4>
+        </div>
+        <p className='text-xs text-gray-500 dark:text-gray-400 -mt-2'>
+          设置登录页面的背景图片。支持本地图片路径（如
+          /background.png）或外部图片直链。留空则使用默认动态背景。
+        </p>
+        <div>
+          <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1'>
+            背景图片地址
+          </label>
+          <input
+            type='text'
+            placeholder='例如: /background.png 或 https://example.com/bg.jpg'
+            value={siteSettings.LoginBackground}
+            onChange={(e) =>
+              setSiteSettings((prev) => ({
+                ...prev,
+                LoginBackground: e.target.value,
+              }))
+            }
+            className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400'
+          />
+        </div>
+        {/* 背景图预览 */}
+        {siteSettings.LoginBackground && (
+          <div className='mt-3'>
+            <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
+              背景预览
+            </label>
+            <div className='relative w-full h-32 rounded-lg overflow-hidden border border-gray-300 dark:border-gray-600'>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={siteSettings.LoginBackground}
+                alt='背景预览'
+                className='w-full h-full object-cover'
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = 'none';
+                }}
+              />
+              <div className='absolute inset-0 bg-black/30 flex items-center justify-center'>
+                <span className='text-white text-sm font-medium px-3 py-1 bg-black/50 rounded-lg'>
+                  登录背景预览
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 操作按钮 */}
@@ -6264,7 +6402,1904 @@ const LiveSourceConfig = ({
   );
 };
 
+// 弹幕配置组件
+interface DanmuConfigProps {
+  config: AdminConfig | null;
+  refreshConfig: () => Promise<void>;
+}
+
+interface DanmuNodeFormState {
+  name: string;
+  url: string;
+  token: string;
+}
+
+interface DanmuNodeHealthState {
+  status: 'idle' | 'testing' | 'ok' | 'error';
+  latency?: number;
+  error?: string;
+}
+
+interface DanmuSettingsState {
+  enabled: boolean;
+  serverUrl: string;
+  token: string;
+  platform: string;
+  sourceOrder: string;
+  mergeSourcePairs: string;
+  bilibiliCookie: string;
+  convertTopBottomToScroll: boolean;
+  convertColor: 'default' | 'white' | 'color';
+  danmuLimit: number;
+  blockedWords: string;
+  danmuOutputFormat: 'json' | 'xml';
+  simplifiedTraditional: 'default' | 'simplified' | 'traditional';
+  customNodes: DanmuCustomNode[];
+}
+
+const DANMU_CUSTOM_NODE_STORAGE_KEY = 'decotv:danmu:custom-nodes';
+const MAX_CUSTOM_DANMU_NODE_COUNT = 64;
+
+const RECOMMENDED_DANMU_SERVER = {
+  name: '官方推荐/稳定节点',
+  url: 'https://danmu.katelya.eu.org',
+  token: 'decotv',
+  badge: '官方推荐',
+};
+
+const DEPLOYMENT_GUIDE_URL = 'https://github.com/huangxd-/danmu_api';
+
+const DEMO_DANMU_SERVERS = [RECOMMENDED_DANMU_SERVER];
+
+const SOURCE_OPTIONS = [
+  { value: '360', label: '360搜索' },
+  { value: 'vod', label: 'VOD采集' },
+  { value: 'tmdb', label: 'TMDB' },
+  { value: 'douban', label: '豆瓣' },
+  { value: 'tencent', label: '腾讯视频' },
+  { value: 'youku', label: '优酷' },
+  { value: 'iqiyi', label: '爱奇艺' },
+  { value: 'imgo', label: '芒果TV' },
+  { value: 'bilibili', label: '哔哩哔哩' },
+  { value: 'migu', label: '咪咕视频' },
+  { value: 'sohu', label: '搜狐视频' },
+  { value: 'leshi', label: '乐视' },
+  { value: 'xigua', label: '西瓜视频' },
+  { value: 'renren', label: '人人视频' },
+  { value: 'hanjutv', label: '韩剧TV' },
+  { value: 'bahamut', label: '巴哈姆特' },
+  { value: 'dandan', label: '弹弹play' },
+  { value: 'animeko', label: 'Animeko' },
+  { value: 'custom', label: '自定义源' },
+];
+
+const PLATFORM_OPTIONS = [
+  { value: 'qiyi', label: '爱奇艺' },
+  { value: 'bilibili1', label: '哔哩哔哩' },
+  { value: 'imgo', label: '芒果TV' },
+  { value: 'youku', label: '优酷' },
+  { value: 'qq', label: '腾讯视频' },
+  { value: 'migu', label: '咪咕' },
+  { value: 'sohu', label: '搜狐' },
+  { value: 'leshi', label: '乐视' },
+  { value: 'xigua', label: '西瓜' },
+  { value: 'renren', label: '人人' },
+  { value: 'hanjutv', label: '韩剧TV' },
+  { value: 'bahamut', label: '巴哈姆特' },
+  { value: 'dandan', label: '弹弹play' },
+  { value: 'animeko', label: 'Animeko' },
+  { value: 'custom', label: '自定义' },
+];
+
+const DanmuConfigComponent = ({ config, refreshConfig }: DanmuConfigProps) => {
+  const { alertModal, showAlert, hideAlert } = useAlertModal();
+  const { isLoading, withLoading } = useLoadingState();
+
+  const [danmuSettings, setDanmuSettings] = useState<DanmuSettingsState>({
+    enabled: false,
+    serverUrl: RECOMMENDED_DANMU_SERVER.url,
+    token: RECOMMENDED_DANMU_SERVER.token,
+    platform: '',
+    sourceOrder: '',
+    mergeSourcePairs: '',
+    bilibiliCookie: '',
+    convertTopBottomToScroll: false,
+    convertColor: 'default' as 'default' | 'white' | 'color',
+    danmuLimit: 0,
+    blockedWords: '',
+    danmuOutputFormat: 'json' as 'json' | 'xml',
+    simplifiedTraditional: 'default' as
+      | 'default'
+      | 'simplified'
+      | 'traditional',
+    customNodes: [],
+  });
+
+  const [testResult, setTestResult] = useState<{
+    success?: boolean;
+    latency?: number;
+    searchAvailable?: boolean;
+    searchResultCount?: number;
+    error?: string;
+  } | null>(null);
+
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [isNodeModalOpen, setIsNodeModalOpen] = useState(false);
+  const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
+  const [nodeForm, setNodeForm] = useState<DanmuNodeFormState>({
+    name: '',
+    url: '',
+    token: '',
+  });
+  const [nodeHealthMap, setNodeHealthMap] = useState<
+    Record<string, DanmuNodeHealthState>
+  >({});
+
+  const normalizeServerUrl = useCallback((value: string) => {
+    return value.trim().replace(/\/+$/, '');
+  }, []);
+
+  const createNodeId = useCallback(() => {
+    if (
+      typeof crypto !== 'undefined' &&
+      typeof crypto.randomUUID === 'function'
+    ) {
+      return crypto.randomUUID();
+    }
+    return `node_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+  }, []);
+
+  // 统一过滤与规范化节点数据，避免脏数据写入配置。
+  const sanitizeCustomNodes = useCallback(
+    (value: unknown): DanmuCustomNode[] => {
+      if (!Array.isArray(value)) {
+        return [];
+      }
+
+      const now = Date.now();
+      const nodes: DanmuCustomNode[] = [];
+      for (const item of value) {
+        if (!item || typeof item !== 'object') {
+          continue;
+        }
+
+        const raw = item as Partial<DanmuCustomNode>;
+        const name = typeof raw.name === 'string' ? raw.name.trim() : '';
+        const url =
+          typeof raw.url === 'string' ? normalizeServerUrl(raw.url) : '';
+        if (!name || !url) {
+          continue;
+        }
+
+        const token = typeof raw.token === 'string' ? raw.token.trim() : '';
+        const createdAt =
+          typeof raw.createdAt === 'number' && Number.isFinite(raw.createdAt)
+            ? raw.createdAt
+            : now;
+        const updatedAt =
+          typeof raw.updatedAt === 'number' && Number.isFinite(raw.updatedAt)
+            ? raw.updatedAt
+            : now;
+        const id =
+          typeof raw.id === 'string' && raw.id.trim()
+            ? raw.id.trim()
+            : `node_${createdAt}_${nodes.length}`;
+
+        nodes.push({ id, name, url, token, createdAt, updatedAt });
+        if (nodes.length >= MAX_CUSTOM_DANMU_NODE_COUNT) {
+          break;
+        }
+      }
+
+      return nodes;
+    },
+    [normalizeServerUrl],
+  );
+
+  const loadCustomNodesFromStorage = useCallback((): DanmuCustomNode[] => {
+    if (typeof window === 'undefined') {
+      return [];
+    }
+    try {
+      const raw = window.localStorage.getItem(DANMU_CUSTOM_NODE_STORAGE_KEY);
+      if (!raw) {
+        return [];
+      }
+      return sanitizeCustomNodes(JSON.parse(raw));
+    } catch {
+      return [];
+    }
+  }, [sanitizeCustomNodes]);
+
+  const persistCustomNodesToStorage = useCallback(
+    (nodes: DanmuCustomNode[]) => {
+      if (typeof window === 'undefined') {
+        return;
+      }
+      try {
+        window.localStorage.setItem(
+          DANMU_CUSTOM_NODE_STORAGE_KEY,
+          JSON.stringify(nodes),
+        );
+      } catch {
+        // localStorage 异常不影响主流程。
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (config?.DanmuConfig) {
+      const configCustomNodes = sanitizeCustomNodes(
+        config.DanmuConfig.customNodes,
+      );
+      const customNodes =
+        configCustomNodes.length > 0
+          ? configCustomNodes
+          : loadCustomNodesFromStorage();
+      setDanmuSettings({
+        enabled: config.DanmuConfig.enabled ?? false,
+        serverUrl: normalizeServerUrl(config.DanmuConfig.serverUrl ?? ''),
+        token: config.DanmuConfig.token ?? '',
+        platform: config.DanmuConfig.platform ?? '',
+        sourceOrder: config.DanmuConfig.sourceOrder ?? '',
+        mergeSourcePairs: config.DanmuConfig.mergeSourcePairs ?? '',
+        bilibiliCookie: config.DanmuConfig.bilibiliCookie ?? '',
+        convertTopBottomToScroll:
+          config.DanmuConfig.convertTopBottomToScroll ?? false,
+        convertColor: config.DanmuConfig.convertColor ?? 'default',
+        danmuLimit: config.DanmuConfig.danmuLimit ?? 0,
+        blockedWords: config.DanmuConfig.blockedWords ?? '',
+        danmuOutputFormat: config.DanmuConfig.danmuOutputFormat ?? 'json',
+        simplifiedTraditional:
+          config.DanmuConfig.simplifiedTraditional ?? 'default',
+        customNodes,
+      });
+      return;
+    }
+    const fallbackNodes = loadCustomNodesFromStorage();
+    if (fallbackNodes.length > 0) {
+      setDanmuSettings((prev) => ({
+        ...prev,
+        customNodes: fallbackNodes,
+      }));
+    }
+  }, [
+    config,
+    loadCustomNodesFromStorage,
+    normalizeServerUrl,
+    sanitizeCustomNodes,
+  ]);
+
+  useEffect(() => {
+    persistCustomNodesToStorage(danmuSettings.customNodes);
+  }, [danmuSettings.customNodes, persistCustomNodesToStorage]);
+
+  // 构建实际 API 地址（baseUrl + token 拼接）
+  const getFullServerUrl = (
+    serverUrl = danmuSettings.serverUrl,
+    token = danmuSettings.token,
+  ) => {
+    const base = normalizeServerUrl(serverUrl);
+    if (!base) return '';
+    const safeToken = token.trim();
+    if (safeToken) {
+      return `${base}/${safeToken}`;
+    }
+    return base;
+  };
+
+  const persistDanmuSettings = useCallback(
+    async (nextSettings: DanmuSettingsState, successMessage: string) => {
+      const resp = await fetch('/api/admin/danmu', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(nextSettings),
+      });
+      if (!resp.ok) {
+        const data = (await resp.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        throw new Error(data.error || '保存失败');
+      }
+      persistCustomNodesToStorage(nextSettings.customNodes);
+      await refreshConfig();
+      setDanmuSettings(nextSettings);
+      showSuccess(successMessage, showAlert);
+    },
+    [persistCustomNodesToStorage, refreshConfig, showAlert],
+  );
+
+  const handleSave = async () => {
+    await withLoading('saveDanmuConfig', async () => {
+      try {
+        await persistDanmuSettings(danmuSettings, '弹幕配置保存成功');
+      } catch (err) {
+        showError(`保存弹幕配置失败: ${(err as Error).message}`, showAlert);
+      }
+    });
+  };
+
+  const handleTest = async () => {
+    const url = getFullServerUrl();
+    if (!url) {
+      showError('请先填写弹幕服务器地址', showAlert);
+      return;
+    }
+    setTestResult(null);
+    await withLoading('testDanmuServer', async () => {
+      try {
+        const resp = await fetch('/api/admin/danmu/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ serverUrl: url }),
+        });
+        const data = await resp.json();
+        setTestResult(data);
+      } catch (err) {
+        setTestResult({
+          success: false,
+          error: (err as Error).message,
+        });
+      }
+    });
+  };
+
+  const handleSelectDemoServer = (server: { url: string; token?: string }) => {
+    setDanmuSettings((prev) => ({
+      ...prev,
+      serverUrl: normalizeServerUrl(server.url),
+      token: server.token ?? prev.token,
+    }));
+    setTestResult(null);
+  };
+
+  const isNodeSelected = (node: DanmuCustomNode) => {
+    return (
+      normalizeServerUrl(danmuSettings.serverUrl) ===
+        normalizeServerUrl(node.url) &&
+      danmuSettings.token.trim() === node.token.trim()
+    );
+  };
+
+  const openAddNodeModal = () => {
+    setEditingNodeId(null);
+    setNodeForm({ name: '', url: '', token: '' });
+    setIsNodeModalOpen(true);
+  };
+
+  const openEditNodeModal = (node: DanmuCustomNode) => {
+    setEditingNodeId(node.id);
+    setNodeForm({
+      name: node.name,
+      url: node.url,
+      token: node.token,
+    });
+    setIsNodeModalOpen(true);
+  };
+
+  const closeNodeModal = () => {
+    setIsNodeModalOpen(false);
+    setEditingNodeId(null);
+    setNodeForm({ name: '', url: '', token: '' });
+  };
+
+  const handleSubmitNode = () => {
+    const name = nodeForm.name.trim();
+    const url = normalizeServerUrl(nodeForm.url);
+    const token = nodeForm.token.trim();
+
+    if (!name || !url) {
+      showError('节点名称和服务地址不能为空', showAlert);
+      return;
+    }
+
+    if (
+      !editingNodeId &&
+      danmuSettings.customNodes.length >= MAX_CUSTOM_DANMU_NODE_COUNT
+    ) {
+      showError(
+        `最多仅支持 ${MAX_CUSTOM_DANMU_NODE_COUNT} 个自定义节点`,
+        showAlert,
+      );
+      return;
+    }
+
+    const now = Date.now();
+    setDanmuSettings((prev) => {
+      if (editingNodeId) {
+        return {
+          ...prev,
+          customNodes: prev.customNodes.map((item) =>
+            item.id === editingNodeId
+              ? { ...item, name, url, token, updatedAt: now }
+              : item,
+          ),
+        };
+      }
+
+      const nextNode: DanmuCustomNode = {
+        id: createNodeId(),
+        name,
+        url,
+        token,
+        createdAt: now,
+        updatedAt: now,
+      };
+      return {
+        ...prev,
+        customNodes: [nextNode, ...prev.customNodes],
+      };
+    });
+
+    if (editingNodeId) {
+      setNodeHealthMap((prev) => {
+        const next = { ...prev };
+        delete next[editingNodeId];
+        return next;
+      });
+    }
+
+    setTestResult(null);
+    closeNodeModal();
+    showSuccess(editingNodeId ? '节点更新成功' : '节点添加成功', showAlert);
+  };
+
+  const handleDeleteNode = (node: DanmuCustomNode) => {
+    if (!window.confirm(`确认删除节点「${node.name}」吗？`)) {
+      return;
+    }
+
+    setDanmuSettings((prev) => ({
+      ...prev,
+      customNodes: prev.customNodes.filter((item) => item.id !== node.id),
+    }));
+    setNodeHealthMap((prev) => {
+      const next = { ...prev };
+      delete next[node.id];
+      return next;
+    });
+    showSuccess('节点已删除', showAlert);
+  };
+
+  const handleApplyNode = async (node: DanmuCustomNode) => {
+    const nextSettings: DanmuSettingsState = {
+      ...danmuSettings,
+      enabled: true,
+      serverUrl: node.url,
+      token: node.token,
+    };
+
+    await withLoading(`applyDanmuNode_${node.id}`, async () => {
+      try {
+        await persistDanmuSettings(nextSettings, `已应用节点：${node.name}`);
+        setTestResult(null);
+      } catch (err) {
+        showError(`应用节点失败: ${(err as Error).message}`, showAlert);
+      }
+    });
+  };
+
+  const handleTestNode = async (node: DanmuCustomNode) => {
+    const fullUrl = getFullServerUrl(node.url, node.token);
+    if (!fullUrl) {
+      showError('节点地址不合法', showAlert);
+      return;
+    }
+
+    setNodeHealthMap((prev) => ({
+      ...prev,
+      [node.id]: { status: 'testing' },
+    }));
+
+    await withLoading(`testDanmuNode_${node.id}`, async () => {
+      try {
+        const resp = await fetch('/api/admin/danmu/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ serverUrl: fullUrl }),
+        });
+        const data = (await resp.json()) as {
+          success?: boolean;
+          latency?: number;
+          error?: string;
+        };
+
+        if (data.success) {
+          setNodeHealthMap((prev) => ({
+            ...prev,
+            [node.id]: {
+              status: 'ok',
+              latency:
+                typeof data.latency === 'number' &&
+                Number.isFinite(data.latency)
+                  ? data.latency
+                  : undefined,
+            },
+          }));
+          return;
+        }
+
+        setNodeHealthMap((prev) => ({
+          ...prev,
+          [node.id]: {
+            status: 'error',
+            error: data.error || '连接失败',
+          },
+        }));
+      } catch (err) {
+        setNodeHealthMap((prev) => ({
+          ...prev,
+          [node.id]: {
+            status: 'error',
+            error: (err as Error).message || '连接失败',
+          },
+        }));
+      }
+    });
+  };
+
+  const toggleSourceOrder = (source: string) => {
+    setDanmuSettings((prev) => {
+      const current = prev.sourceOrder
+        ? prev.sourceOrder
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : [];
+      const idx = current.indexOf(source);
+      if (idx >= 0) {
+        current.splice(idx, 1);
+      } else {
+        current.push(source);
+      }
+      return { ...prev, sourceOrder: current.join(',') };
+    });
+  };
+
+  const togglePlatform = (platform: string) => {
+    setDanmuSettings((prev) => {
+      const current = prev.platform
+        ? prev.platform
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : [];
+      const idx = current.indexOf(platform);
+      if (idx >= 0) {
+        current.splice(idx, 1);
+      } else {
+        current.push(platform);
+      }
+      return { ...prev, platform: current.join(',') };
+    });
+  };
+
+  const selectedSources = danmuSettings.sourceOrder
+    ? danmuSettings.sourceOrder
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : [];
+  const selectedPlatforms = danmuSettings.platform
+    ? danmuSettings.platform
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : [];
+  const customNodes = danmuSettings.customNodes;
+
+  const getNodeHealthView = (nodeId: string) => {
+    const health = nodeHealthMap[nodeId];
+    if (!health || health.status === 'idle') {
+      return (
+        <span className='inline-flex rounded-full bg-gray-100 dark:bg-gray-700/40 text-gray-600 dark:text-gray-300 px-2 py-0.5 text-[11px]'>
+          未测试
+        </span>
+      );
+    }
+    if (health.status === 'testing') {
+      return (
+        <span className='inline-flex rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-0.5 text-[11px]'>
+          测试中...
+        </span>
+      );
+    }
+    if (health.status === 'ok') {
+      return (
+        <span className='inline-flex rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 text-[11px]'>
+          {typeof health.latency === 'number' ? `${health.latency}ms` : '可用'}
+        </span>
+      );
+    }
+    return (
+      <span
+        className='inline-flex rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 px-2 py-0.5 text-[11px]'
+        title={health.error || '连接失败'}
+      >
+        不可用
+      </span>
+    );
+  };
+
+  return (
+    <div className='space-y-6'>
+      {/* 顶部状态提示 */}
+      <div
+        className={`rounded-lg border p-4 ${
+          danmuSettings.enabled
+            ? 'bg-emerald-50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800'
+            : 'bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700'
+        }`}
+      >
+        <div className='flex items-center justify-between'>
+          <div className='flex items-center gap-3'>
+            <div
+              className={`w-2.5 h-2.5 rounded-full ${
+                danmuSettings.enabled
+                  ? 'bg-emerald-500 animate-pulse'
+                  : 'bg-gray-400'
+              }`}
+            />
+            <div>
+              <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
+                {danmuSettings.enabled
+                  ? '自定义弹幕服务已启用'
+                  : '使用内置弹弹play弹幕服务'}
+              </p>
+              <p className='text-xs text-gray-500 dark:text-gray-400 mt-0.5'>
+                {danmuSettings.enabled
+                  ? danmuSettings.serverUrl
+                    ? `服务器: ${getFullServerUrl()}`
+                    : '请配置弹幕服务器地址'
+                  : '当前使用 Docker 镜像内置的弹弹play API 提供弹幕'}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() =>
+              setDanmuSettings((prev) => ({ ...prev, enabled: !prev.enabled }))
+            }
+            className={`relative inline-flex h-7 w-13 items-center rounded-full transition-colors ${
+              danmuSettings.enabled
+                ? buttonStyles.toggleOn
+                : buttonStyles.toggleOff
+            }`}
+          >
+            <span
+              className={`inline-block h-5 w-5 transform rounded-full transition-transform ${
+                buttonStyles.toggleThumb
+              } ${
+                danmuSettings.enabled
+                  ? buttonStyles.toggleThumbOn
+                  : buttonStyles.toggleThumbOff
+              }`}
+            />
+          </button>
+        </div>
+      </div>
+
+      {/* 服务器配置区域 */}
+      {danmuSettings.enabled && (
+        <div className='space-y-6'>
+          {/* 仅当使用内置演示站（或未配置自定义地址）时显示警告 */}
+          {(!danmuSettings.serverUrl ||
+            DEMO_DANMU_SERVERS.some(
+              (s) =>
+                normalizeServerUrl(s.url) ===
+                normalizeServerUrl(danmuSettings.serverUrl),
+            )) && (
+            <div className='rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/15 p-4'>
+              <div className='flex items-start gap-2'>
+                <AlertTriangle className='w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5' />
+                <div className='space-y-1'>
+                  <p className='text-sm font-medium text-amber-900 dark:text-amber-200'>
+                    内置演示站仅供测试，极其不稳定，强烈建议用户自行部署。
+                  </p>
+                  <p className='text-xs text-amber-700 dark:text-amber-300 flex flex-wrap items-center gap-1.5'>
+                    自部署教程:
+                    <a
+                      href={DEPLOYMENT_GUIDE_URL}
+                      target='_blank'
+                      rel='noopener noreferrer'
+                      className='inline-flex items-center gap-1 font-medium underline hover:text-amber-900 dark:hover:text-amber-100'
+                    >
+                      huangxd-/danmu_api
+                      <ExternalLink className='w-3 h-3' />
+                    </a>
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 服务器地址 & Token */}
+          <div className='bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden'>
+            <div className='p-4 border-b border-gray-100 dark:border-gray-700/50 bg-gray-50/50 dark:bg-gray-800/50'>
+              <h4 className='text-sm font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2'>
+                <span className='w-1 h-4 bg-blue-500 rounded-full'></span>
+                服务器连接
+              </h4>
+              <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
+                配置 LogVar 弹幕 API 服务器地址和访问令牌
+              </p>
+            </div>
+            <div className='p-4 space-y-4'>
+              {/* 服务器地址 */}
+              <div>
+                <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5'>
+                  服务器地址
+                </label>
+                <div className='flex gap-2'>
+                  <input
+                    type='text'
+                    value={danmuSettings.serverUrl}
+                    onChange={(e) =>
+                      setDanmuSettings((prev) => ({
+                        ...prev,
+                        serverUrl: e.target.value,
+                      }))
+                    }
+                    placeholder='如 http://192.168.1.7:9321 或 https://your-domain.com'
+                    className='flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900/50 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all placeholder-gray-400 dark:placeholder-gray-500'
+                  />
+                  <button
+                    onClick={handleTest}
+                    disabled={
+                      isLoading('testDanmuServer') || !danmuSettings.serverUrl
+                    }
+                    className={`shrink-0 px-4 py-2 text-sm font-medium rounded-lg transition-all flex items-center gap-1.5 ${
+                      isLoading('testDanmuServer') || !danmuSettings.serverUrl
+                        ? buttonStyles.disabled
+                        : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm hover:shadow-md'
+                    }`}
+                  >
+                    {isLoading('testDanmuServer') ? (
+                      <svg
+                        className='w-4 h-4 animate-spin'
+                        viewBox='0 0 24 24'
+                        fill='none'
+                      >
+                        <circle
+                          className='opacity-25'
+                          cx='12'
+                          cy='12'
+                          r='10'
+                          stroke='currentColor'
+                          strokeWidth='4'
+                        />
+                        <path
+                          className='opacity-75'
+                          fill='currentColor'
+                          d='M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z'
+                        />
+                      </svg>
+                    ) : (
+                      <svg
+                        className='w-4 h-4'
+                        fill='none'
+                        stroke='currentColor'
+                        viewBox='0 0 24 24'
+                      >
+                        <path
+                          strokeLinecap='round'
+                          strokeLinejoin='round'
+                          strokeWidth='2'
+                          d='M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z'
+                        />
+                      </svg>
+                    )}
+                    {isLoading('testDanmuServer') ? '测试中...' : '连通测试'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Token */}
+              <div>
+                <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5'>
+                  API Token
+                  <span className='text-xs text-gray-400 dark:text-gray-500 font-normal ml-2'>
+                    官方稳定节点默认 decotv，留空则不携带 token
+                  </span>
+                </label>
+                <input
+                  type='text'
+                  value={danmuSettings.token}
+                  onChange={(e) =>
+                    setDanmuSettings((prev) => ({
+                      ...prev,
+                      token: e.target.value,
+                    }))
+                  }
+                  placeholder='decotv'
+                  className='w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900/50 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-mono placeholder-gray-400 dark:placeholder-gray-500'
+                />
+              </div>
+
+              {/* 拼接后完整地址显示 */}
+              {danmuSettings.serverUrl && (
+                <div className='bg-gray-50 dark:bg-gray-900/30 rounded-lg p-3 border border-gray-100 dark:border-gray-700/50'>
+                  <p className='text-xs text-gray-500 dark:text-gray-400 mb-1'>
+                    完整 API 端点
+                  </p>
+                  <p className='text-sm font-mono text-gray-700 dark:text-gray-300 break-all'>
+                    {getFullServerUrl()}
+                  </p>
+                </div>
+              )}
+
+              {/* 连通测试结果 */}
+              {testResult && (
+                <div
+                  className={`rounded-lg border p-3 ${
+                    testResult.success
+                      ? 'bg-emerald-50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800'
+                      : 'bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-800'
+                  }`}
+                >
+                  <div className='flex items-start gap-2'>
+                    {testResult.success ? (
+                      <CheckCircle className='w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5' />
+                    ) : (
+                      <AlertCircle className='w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5' />
+                    )}
+                    <div className='text-sm'>
+                      <p
+                        className={`font-medium ${testResult.success ? 'text-emerald-800 dark:text-emerald-300' : 'text-red-800 dark:text-red-300'}`}
+                      >
+                        {testResult.success ? '服务器连接成功' : '连接失败'}
+                      </p>
+                      {testResult.success && (
+                        <div className='mt-1 space-y-0.5 text-emerald-700 dark:text-emerald-400'>
+                          <p>延迟: {testResult.latency}ms</p>
+                          <p>
+                            搜索接口:
+                            {testResult.searchAvailable
+                              ? ` 可用（测试返回 ${testResult.searchResultCount} 条结果）`
+                              : ' 不可用'}
+                          </p>
+                        </div>
+                      )}
+                      {testResult.error && (
+                        <p className='mt-1 text-red-600 dark:text-red-400'>
+                          {testResult.error}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 推荐节点快速选择 */}
+          <div className='bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden'>
+            <div className='p-4 border-b border-gray-100 dark:border-gray-700/50 bg-gray-50/50 dark:bg-gray-800/50'>
+              <h4 className='text-sm font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2'>
+                <span className='w-1 h-4 bg-purple-500 rounded-full'></span>
+                推荐节点（含稳定源）
+              </h4>
+              <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
+                已内置官方推荐稳定节点；历史演示站通常不稳定，建议优先使用自建服务。
+              </p>
+            </div>
+            <div className='p-4'>
+              <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2'>
+                {DEMO_DANMU_SERVERS.map((server) => {
+                  const isSelected = danmuSettings.serverUrl === server.url;
+                  return (
+                    <button
+                      key={server.url}
+                      onClick={() => handleSelectDemoServer(server)}
+                      className={`text-left p-3 rounded-lg border-2 transition-all ${
+                        isSelected
+                          ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
+                          : 'border-gray-200 dark:border-gray-700 hover:border-purple-300 dark:hover:border-purple-700 bg-white dark:bg-gray-800'
+                      }`}
+                    >
+                      <p
+                        className={`text-sm font-medium ${
+                          isSelected
+                            ? 'text-purple-700 dark:text-purple-300'
+                            : 'text-gray-800 dark:text-gray-200'
+                        }`}
+                      >
+                        {server.name}
+                      </p>
+                      {server.badge && (
+                        <div className='mt-1'>
+                          <span className='inline-flex rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 text-[11px] font-medium'>
+                            {server.badge}
+                          </span>
+                        </div>
+                      )}
+                      <p className='text-xs font-mono text-gray-500 dark:text-gray-400 mt-0.5 truncate'>
+                        {server.url}
+                      </p>
+                      {server.token && (
+                        <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
+                          Token:{' '}
+                          <span className='font-mono'>{server.token}</span>
+                        </p>
+                      )}
+                      {isSelected && (
+                        <div className='flex items-center gap-1 mt-1'>
+                          <Check className='w-3 h-3 text-purple-500' />
+                          <span className='text-xs text-purple-600 dark:text-purple-400'>
+                            已选择
+                          </span>
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          <div className='bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden'>
+            <div className='p-4 border-b border-gray-100 dark:border-gray-700/50 bg-gray-50/50 dark:bg-gray-800/50 flex items-center justify-between gap-3'>
+              <div>
+                <h4 className='text-sm font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2'>
+                  <span className='w-1 h-4 bg-emerald-500 rounded-full'></span>
+                  自定义节点库
+                </h4>
+                <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
+                  管理多个弹幕节点，支持添加、编辑、删除、延迟测试和一键应用
+                </p>
+              </div>
+              <button
+                type='button'
+                onClick={openAddNodeModal}
+                className={buttonStyles.primarySmall}
+              >
+                添加节点
+              </button>
+            </div>
+            <div className='p-4'>
+              {customNodes.length === 0 ? (
+                <div className='rounded-lg border border-dashed border-gray-300 dark:border-gray-700 p-6 text-center text-sm text-gray-500 dark:text-gray-400'>
+                  暂无自定义节点，点击右上角“添加节点”
+                </div>
+              ) : (
+                <div className='space-y-2'>
+                  {customNodes.map((node) => {
+                    const selected = isNodeSelected(node);
+                    const testLoadingKey = `testDanmuNode_${node.id}`;
+                    const applyLoadingKey = `applyDanmuNode_${node.id}`;
+                    return (
+                      <div
+                        key={node.id}
+                        className={`rounded-lg border p-3 transition-all ${
+                          selected
+                            ? 'border-emerald-300 dark:border-emerald-700 bg-emerald-50/60 dark:bg-emerald-900/20'
+                            : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/20'
+                        }`}
+                      >
+                        <div className='flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between'>
+                          <div className='min-w-0 flex-1'>
+                            <div className='flex items-center gap-2'>
+                              <p className='text-sm font-medium text-gray-800 dark:text-gray-100 truncate'>
+                                {node.name}
+                              </p>
+                              {selected && (
+                                <span className='inline-flex rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 text-[11px]'>
+                                  当前使用
+                                </span>
+                              )}
+                            </div>
+                            <p className='mt-1 text-xs font-mono text-gray-500 dark:text-gray-400 break-all'>
+                              {node.url}
+                            </p>
+                            {node.token && (
+                              <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
+                                Token:{' '}
+                                <span className='font-mono'>{node.token}</span>
+                              </p>
+                            )}
+                          </div>
+                          <div className='flex flex-wrap items-center gap-2'>
+                            {getNodeHealthView(node.id)}
+                            <button
+                              type='button'
+                              onClick={() => handleTestNode(node)}
+                              disabled={isLoading(testLoadingKey)}
+                              className={`px-2 py-1 text-xs rounded-md ${
+                                isLoading(testLoadingKey)
+                                  ? buttonStyles.disabledSmall
+                                  : buttonStyles.secondarySmall
+                              }`}
+                            >
+                              {isLoading(testLoadingKey)
+                                ? '测试中...'
+                                : '测试延迟'}
+                            </button>
+                            <button
+                              type='button'
+                              onClick={() => handleApplyNode(node)}
+                              disabled={isLoading(applyLoadingKey)}
+                              className={`px-2 py-1 text-xs rounded-md ${
+                                isLoading(applyLoadingKey)
+                                  ? buttonStyles.disabledSmall
+                                  : buttonStyles.successSmall
+                              }`}
+                            >
+                              {isLoading(applyLoadingKey)
+                                ? '应用中...'
+                                : '使用此节点'}
+                            </button>
+                            <button
+                              type='button'
+                              onClick={() => openEditNodeModal(node)}
+                              className={buttonStyles.primarySmall}
+                            >
+                              编辑
+                            </button>
+                            <button
+                              type='button'
+                              onClick={() => handleDeleteNode(node)}
+                              className={buttonStyles.dangerSmall}
+                            >
+                              删除
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 弹幕来源平台优先级 */}
+          <div className='bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden'>
+            <div className='p-4 border-b border-gray-100 dark:border-gray-700/50 bg-gray-50/50 dark:bg-gray-800/50'>
+              <h4 className='text-sm font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2'>
+                <span className='w-1 h-4 bg-amber-500 rounded-full'></span>
+                弹幕来源平台优先级
+              </h4>
+              <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
+                选择并排列弹幕优先匹配的视频平台，留空则自动匹配
+              </p>
+            </div>
+            <div className='p-4'>
+              <div className='flex flex-wrap gap-2'>
+                {PLATFORM_OPTIONS.map((opt) => {
+                  const isActive = selectedPlatforms.includes(opt.value);
+                  const order = selectedPlatforms.indexOf(opt.value);
+                  return (
+                    <button
+                      key={opt.value}
+                      onClick={() => togglePlatform(opt.value)}
+                      className={`relative inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+                        isActive
+                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 ring-2 ring-amber-300 dark:ring-amber-700'
+                          : 'bg-gray-100 text-gray-600 dark:bg-gray-700/40 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                      }`}
+                    >
+                      {isActive && (
+                        <span className='mr-1.5 inline-flex items-center justify-center w-4 h-4 rounded-full bg-amber-500 text-white text-[10px] font-bold'>
+                          {order + 1}
+                        </span>
+                      )}
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {selectedPlatforms.length > 0 && (
+                <p className='text-xs text-gray-500 dark:text-gray-400 mt-2'>
+                  当前优先级: {selectedPlatforms.join(' > ')}
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* 采集源配置 */}
+          <div className='bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden'>
+            <div className='p-4 border-b border-gray-100 dark:border-gray-700/50 bg-gray-50/50 dark:bg-gray-800/50'>
+              <h4 className='text-sm font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2'>
+                <span className='w-1 h-4 bg-cyan-500 rounded-full'></span>
+                采集源排序
+              </h4>
+              <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
+                选择启用的采集源并按优先级排列，未选择则使用服务器默认配置
+              </p>
+            </div>
+            <div className='p-4'>
+              <div className='flex flex-wrap gap-2'>
+                {SOURCE_OPTIONS.map((opt) => {
+                  const isActive = selectedSources.includes(opt.value);
+                  const order = selectedSources.indexOf(opt.value);
+                  return (
+                    <button
+                      key={opt.value}
+                      onClick={() => toggleSourceOrder(opt.value)}
+                      className={`relative inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+                        isActive
+                          ? 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-200 ring-2 ring-cyan-300 dark:ring-cyan-700'
+                          : 'bg-gray-100 text-gray-600 dark:bg-gray-700/40 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                      }`}
+                    >
+                      {isActive && (
+                        <span className='mr-1.5 inline-flex items-center justify-center w-4 h-4 rounded-full bg-cyan-500 text-white text-[10px] font-bold'>
+                          {order + 1}
+                        </span>
+                      )}
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {selectedSources.length > 0 && (
+                <p className='text-xs text-gray-500 dark:text-gray-400 mt-2'>
+                  当前排序: {selectedSources.join(' > ')}
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* 高级配置折叠区 */}
+          <div className='bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden'>
+            <button
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              className='w-full p-4 flex items-center justify-between bg-gray-50/50 dark:bg-gray-800/50 hover:bg-gray-100/50 dark:hover:bg-gray-700/50 transition-colors'
+            >
+              <div className='flex items-center gap-2'>
+                <span className='w-1 h-4 bg-gray-400 rounded-full'></span>
+                <h4 className='text-sm font-semibold text-gray-900 dark:text-gray-100'>
+                  高级配置
+                </h4>
+                <span className='text-xs text-gray-400 dark:text-gray-500'>
+                  弹幕格式、颜色转换、数量限制、屏蔽词等
+                </span>
+              </div>
+              <div className='text-gray-500 dark:text-gray-400'>
+                {showAdvanced ? (
+                  <ChevronUp size={16} />
+                ) : (
+                  <ChevronDown size={16} />
+                )}
+              </div>
+            </button>
+
+            {showAdvanced && (
+              <div className='p-4 space-y-4 border-t border-gray-100 dark:border-gray-700/50'>
+                {/* 弹幕输出格式 */}
+                <div>
+                  <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
+                    弹幕输出格式
+                  </label>
+                  <div className='flex gap-3'>
+                    {[
+                      { value: 'json', label: 'JSON' },
+                      { value: 'xml', label: 'XML (Bilibili 标准)' },
+                    ].map((fmt) => (
+                      <label
+                        key={fmt.value}
+                        className={`cursor-pointer flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition-all ${
+                          danmuSettings.danmuOutputFormat === fmt.value
+                            ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
+                            : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:border-blue-200'
+                        }`}
+                      >
+                        <input
+                          type='radio'
+                          name='danmuOutputFormat'
+                          value={fmt.value}
+                          checked={
+                            danmuSettings.danmuOutputFormat === fmt.value
+                          }
+                          onChange={(e) =>
+                            setDanmuSettings((prev) => ({
+                              ...prev,
+                              danmuOutputFormat: e.target.value as
+                                | 'json'
+                                | 'xml',
+                            }))
+                          }
+                          className='sr-only'
+                        />
+                        <span className='text-sm font-medium'>{fmt.label}</span>
+                        {danmuSettings.danmuOutputFormat === fmt.value && (
+                          <Check className='w-4 h-4 text-blue-500' />
+                        )}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 弹幕颜色转换 */}
+                <div>
+                  <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
+                    弹幕颜色转换
+                  </label>
+                  <div className='flex flex-wrap gap-2'>
+                    {[
+                      { value: 'default', label: '不转换' },
+                      { value: 'white', label: '全部转白色' },
+                      { value: 'color', label: '白色转随机彩色' },
+                    ].map((opt) => (
+                      <label
+                        key={opt.value}
+                        className={`cursor-pointer px-3 py-1.5 rounded-lg border-2 text-sm transition-all ${
+                          danmuSettings.convertColor === opt.value
+                            ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
+                            : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-blue-200'
+                        }`}
+                      >
+                        <input
+                          type='radio'
+                          name='convertColor'
+                          value={opt.value}
+                          checked={danmuSettings.convertColor === opt.value}
+                          onChange={(e) =>
+                            setDanmuSettings((prev) => ({
+                              ...prev,
+                              convertColor: e.target.value as
+                                | 'default'
+                                | 'white'
+                                | 'color',
+                            }))
+                          }
+                          className='sr-only'
+                        />
+                        {opt.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 简繁转换 */}
+                <div>
+                  <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
+                    弹幕简繁体转换
+                  </label>
+                  <div className='flex flex-wrap gap-2'>
+                    {[
+                      { value: 'default', label: '不转换' },
+                      { value: 'simplified', label: '繁体转简体' },
+                      { value: 'traditional', label: '简体转繁体' },
+                    ].map((opt) => (
+                      <label
+                        key={opt.value}
+                        className={`cursor-pointer px-3 py-1.5 rounded-lg border-2 text-sm transition-all ${
+                          danmuSettings.simplifiedTraditional === opt.value
+                            ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
+                            : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-blue-200'
+                        }`}
+                      >
+                        <input
+                          type='radio'
+                          name='simplifiedTraditional'
+                          value={opt.value}
+                          checked={
+                            danmuSettings.simplifiedTraditional === opt.value
+                          }
+                          onChange={(e) =>
+                            setDanmuSettings((prev) => ({
+                              ...prev,
+                              simplifiedTraditional: e.target.value as
+                                | 'default'
+                                | 'simplified'
+                                | 'traditional',
+                            }))
+                          }
+                          className='sr-only'
+                        />
+                        {opt.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 顶部/底部弹幕转浮动 */}
+                <div className='flex items-center justify-between'>
+                  <div>
+                    <p className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+                      顶部/底部弹幕转浮动
+                    </p>
+                    <p className='text-xs text-gray-500 dark:text-gray-400'>
+                      部分播放器不支持顶部/底部弹幕时启用
+                    </p>
+                  </div>
+                  <button
+                    onClick={() =>
+                      setDanmuSettings((prev) => ({
+                        ...prev,
+                        convertTopBottomToScroll:
+                          !prev.convertTopBottomToScroll,
+                      }))
+                    }
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                      danmuSettings.convertTopBottomToScroll
+                        ? buttonStyles.toggleOn
+                        : buttonStyles.toggleOff
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full transition-transform ${
+                        buttonStyles.toggleThumb
+                      } ${
+                        danmuSettings.convertTopBottomToScroll
+                          ? 'translate-x-6'
+                          : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* 弹幕数量限制 */}
+                <div>
+                  <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5'>
+                    弹幕数量限制
+                    <span className='text-xs text-gray-400 dark:text-gray-500 font-normal ml-2'>
+                      单位: 千条 (0 = 不限制)
+                    </span>
+                  </label>
+                  <input
+                    type='number'
+                    min={0}
+                    max={100}
+                    value={danmuSettings.danmuLimit}
+                    onChange={(e) =>
+                      setDanmuSettings((prev) => ({
+                        ...prev,
+                        danmuLimit: parseInt(e.target.value) || 0,
+                      }))
+                    }
+                    className='w-32 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900/50 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all'
+                  />
+                </div>
+
+                {/* 源合并配置 */}
+                <div>
+                  <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5'>
+                    源合并配置
+                    <span className='text-xs text-gray-400 dark:text-gray-500 font-normal ml-2'>
+                      格式: 源1&源2,源3&源4 （用 & 合并，用 , 分组）
+                    </span>
+                  </label>
+                  <input
+                    type='text'
+                    value={danmuSettings.mergeSourcePairs}
+                    onChange={(e) =>
+                      setDanmuSettings((prev) => ({
+                        ...prev,
+                        mergeSourcePairs: e.target.value,
+                      }))
+                    }
+                    placeholder='如 imgo&iqiyi,dandan&bahamut&animeko'
+                    className='w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900/50 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-mono placeholder-gray-400 dark:placeholder-gray-500'
+                  />
+                </div>
+
+                {/* B站 Cookie */}
+                <div>
+                  <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5'>
+                    哔哩哔哩 Cookie
+                    <span className='text-xs text-gray-400 dark:text-gray-500 font-normal ml-2'>
+                      填入后可获取完整弹幕和港澳台内容
+                    </span>
+                  </label>
+                  <textarea
+                    value={danmuSettings.bilibiliCookie}
+                    onChange={(e) =>
+                      setDanmuSettings((prev) => ({
+                        ...prev,
+                        bilibiliCookie: e.target.value,
+                      }))
+                    }
+                    placeholder='SESSDATA=xxx; bili_jct=xxx'
+                    rows={2}
+                    className='w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900/50 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-mono placeholder-gray-400 dark:placeholder-gray-500 resize-none'
+                  />
+                </div>
+
+                {/* 弹幕屏蔽词 */}
+                <div>
+                  <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5'>
+                    弹幕屏蔽词
+                    <span className='text-xs text-gray-400 dark:text-gray-500 font-normal ml-2'>
+                      支持正则表达式，用逗号分隔
+                    </span>
+                  </label>
+                  <textarea
+                    value={danmuSettings.blockedWords}
+                    onChange={(e) =>
+                      setDanmuSettings((prev) => ({
+                        ...prev,
+                        blockedWords: e.target.value,
+                      }))
+                    }
+                    placeholder='/.{20,}/,/签到|打卡|前排/'
+                    rows={3}
+                    className='w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900/50 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-mono placeholder-gray-400 dark:placeholder-gray-500 resize-none'
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 保存按钮 */}
+          <div className='flex items-center justify-end gap-3 pt-2'>
+            <button
+              onClick={handleSave}
+              disabled={isLoading('saveDanmuConfig')}
+              className={`px-6 py-2.5 text-sm font-medium rounded-lg transition-all flex items-center gap-2 ${
+                isLoading('saveDanmuConfig')
+                  ? buttonStyles.disabled
+                  : 'bg-blue-600 hover:bg-blue-700 text-white shadow-sm hover:shadow-md'
+              }`}
+            >
+              {isLoading('saveDanmuConfig') ? (
+                <svg
+                  className='w-4 h-4 animate-spin'
+                  viewBox='0 0 24 24'
+                  fill='none'
+                >
+                  <circle
+                    className='opacity-25'
+                    cx='12'
+                    cy='12'
+                    r='10'
+                    stroke='currentColor'
+                    strokeWidth='4'
+                  />
+                  <path
+                    className='opacity-75'
+                    fill='currentColor'
+                    d='M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z'
+                  />
+                </svg>
+              ) : (
+                <Check className='w-4 h-4' />
+              )}
+              {isLoading('saveDanmuConfig') ? '保存中...' : '保存配置'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 保存按钮 - 当弹幕服务关闭时也需要保存 */}
+      {!danmuSettings.enabled && (
+        <div className='flex items-center justify-end gap-3 pt-2'>
+          <button
+            onClick={handleSave}
+            disabled={isLoading('saveDanmuConfig')}
+            className={`px-6 py-2.5 text-sm font-medium rounded-lg transition-all flex items-center gap-2 ${
+              isLoading('saveDanmuConfig')
+                ? buttonStyles.disabled
+                : 'bg-blue-600 hover:bg-blue-700 text-white shadow-sm hover:shadow-md'
+            }`}
+          >
+            {isLoading('saveDanmuConfig') ? (
+              <svg
+                className='w-4 h-4 animate-spin'
+                viewBox='0 0 24 24'
+                fill='none'
+              >
+                <circle
+                  className='opacity-25'
+                  cx='12'
+                  cy='12'
+                  r='10'
+                  stroke='currentColor'
+                  strokeWidth='4'
+                />
+                <path
+                  className='opacity-75'
+                  fill='currentColor'
+                  d='M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z'
+                />
+              </svg>
+            ) : (
+              <Check className='w-4 h-4' />
+            )}
+            {isLoading('saveDanmuConfig') ? '保存中...' : '保存配置'}
+          </button>
+        </div>
+      )}
+
+      {isNodeModalOpen && (
+        <div
+          className='fixed inset-0 z-1002 flex items-center justify-center bg-black/60 p-4'
+          onClick={closeNodeModal}
+        >
+          <div
+            className='w-full max-w-lg rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-2xl'
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className='flex items-center justify-between border-b border-gray-100 dark:border-gray-700 px-5 py-4'>
+              <h5 className='text-base font-semibold text-gray-900 dark:text-gray-100'>
+                {editingNodeId ? '编辑自定义节点' : '添加自定义节点'}
+              </h5>
+              <button
+                type='button'
+                onClick={closeNodeModal}
+                className='text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+              >
+                关闭
+              </button>
+            </div>
+            <div className='space-y-4 px-5 py-4'>
+              <div>
+                <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5'>
+                  节点名称
+                </label>
+                <input
+                  type='text'
+                  value={nodeForm.name}
+                  onChange={(e) =>
+                    setNodeForm((prev) => ({ ...prev, name: e.target.value }))
+                  }
+                  placeholder='例如：家庭节点 / 海外节点'
+                  className='w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'
+                />
+              </div>
+              <div>
+                <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5'>
+                  服务地址
+                </label>
+                <input
+                  type='text'
+                  value={nodeForm.url}
+                  onChange={(e) =>
+                    setNodeForm((prev) => ({ ...prev, url: e.target.value }))
+                  }
+                  placeholder='https://danmu.example.com'
+                  className='w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 font-mono focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'
+                />
+              </div>
+              <div>
+                <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5'>
+                  API Token
+                </label>
+                <input
+                  type='text'
+                  value={nodeForm.token}
+                  onChange={(e) =>
+                    setNodeForm((prev) => ({ ...prev, token: e.target.value }))
+                  }
+                  placeholder='可留空'
+                  className='w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 font-mono focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'
+                />
+              </div>
+            </div>
+            <div className='flex items-center justify-end gap-2 border-t border-gray-100 dark:border-gray-700 px-5 py-4'>
+              <button
+                type='button'
+                onClick={closeNodeModal}
+                className={buttonStyles.secondarySmall}
+              >
+                取消
+              </button>
+              <button
+                type='button'
+                onClick={handleSubmitNode}
+                className={buttonStyles.primarySmall}
+              >
+                {editingNodeId ? '保存修改' : '添加节点'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <AlertModal
+        isOpen={alertModal.isOpen}
+        onClose={hideAlert}
+        type={alertModal.type}
+        title={alertModal.title}
+        message={alertModal.message}
+        timer={alertModal.timer}
+        showConfirm={alertModal.showConfirm}
+      />
+    </div>
+  );
+};
+
+interface PanSouConfigProps {
+  config: AdminConfig | null;
+  refreshConfig: () => Promise<void>;
+}
+
+interface PanSouSettingsState {
+  serverUrl: string;
+  token: string;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars, unused-imports/no-unused-vars
+const PanSouConfigComponent = ({
+  config,
+  refreshConfig,
+}: PanSouConfigProps) => {
+  const { alertModal, showAlert, hideAlert } = useAlertModal();
+  const { isLoading, withLoading } = useLoadingState();
+
+  const normalizeServerUrl = useCallback((value: string) => {
+    return value.trim().replace(/\/+$/, '');
+  }, []);
+
+  const [settings, setSettings] = useState<PanSouSettingsState>({
+    serverUrl: normalizeServerUrl(DEFAULT_PANSOU_SERVER_URL),
+    token: '',
+  });
+  const [testResult, setTestResult] = useState<{
+    success?: boolean;
+    latency?: number;
+    healthStatus?: number;
+    searchStatus?: number;
+    searchResultCount?: number;
+    error?: string;
+  } | null>(null);
+
+  const activePanSouNode = useMemo(() => {
+    const nodes = config?.PanSouConfig?.nodes || [];
+    if (!Array.isArray(nodes) || nodes.length === 0) {
+      return null;
+    }
+    return (
+      nodes.find((node) => node.id === config?.PanSouConfig?.activeNodeId) ||
+      nodes[0]
+    );
+  }, [config]);
+
+  useEffect(() => {
+    setSettings({
+      serverUrl:
+        normalizeServerUrl(activePanSouNode?.serverUrl || '') ||
+        normalizeServerUrl(DEFAULT_PANSOU_SERVER_URL),
+      token: activePanSouNode?.token || '',
+    });
+  }, [activePanSouNode, normalizeServerUrl]);
+
+  const handleSave = async () => {
+    const serverUrl = normalizeServerUrl(settings.serverUrl);
+    if (!serverUrl) {
+      showError('请先填写 PanSou 服务地址', showAlert);
+      return;
+    }
+
+    await withLoading('savePanSouConfig', async () => {
+      try {
+        const response = await fetch('/api/admin/pansou', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            serverUrl,
+            token: settings.token.trim(),
+          }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.error || '保存失败');
+        }
+        await refreshConfig();
+        showSuccess('PanSou 配置保存成功', showAlert);
+      } catch (error) {
+        showError(
+          `保存 PanSou 配置失败: ${error instanceof Error ? error.message : '未知错误'}`,
+          showAlert,
+        );
+      }
+    });
+  };
+
+  const handleTest = async () => {
+    const serverUrl = normalizeServerUrl(settings.serverUrl);
+    if (!serverUrl) {
+      showError('请先填写 PanSou 服务地址', showAlert);
+      return;
+    }
+
+    setTestResult(null);
+    await withLoading('testPanSouServer', async () => {
+      try {
+        const response = await fetch('/api/admin/pansou/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            serverUrl,
+            token: settings.token.trim(),
+          }),
+        });
+        const data = (await response.json().catch(() => ({}))) as {
+          success?: boolean;
+          latency?: number;
+          healthStatus?: number;
+          searchStatus?: number;
+          searchResultCount?: number;
+          error?: string;
+        };
+        setTestResult(data);
+      } catch (error) {
+        setTestResult({
+          success: false,
+          error: error instanceof Error ? error.message : '网络请求失败',
+        });
+      }
+    });
+  };
+
+  const handleUseDemoServer = () => {
+    setSettings((prev) => ({
+      ...prev,
+      serverUrl: normalizeServerUrl(DEFAULT_PANSOU_SERVER_URL),
+    }));
+    setTestResult(null);
+  };
+
+  const currentServerUrl = normalizeServerUrl(settings.serverUrl);
+  const isDemoSelected =
+    currentServerUrl === normalizeServerUrl(DEFAULT_PANSOU_SERVER_URL);
+
+  return (
+    <div className='space-y-6'>
+      <div className='rounded-lg border border-cyan-200 dark:border-cyan-900/60 bg-cyan-50 dark:bg-cyan-900/10 p-4'>
+        <div className='flex items-center justify-between gap-3'>
+          <div className='space-y-1'>
+            <p className='text-sm font-semibold text-cyan-900 dark:text-cyan-200'>
+              当前 PanSou 节点
+            </p>
+            <p className='text-xs text-cyan-700 dark:text-cyan-300 break-all'>
+              {currentServerUrl || '未配置'}
+            </p>
+            <p className='text-xs text-cyan-700/90 dark:text-cyan-300/90'>
+              支持对接第三方 PanSou 服务
+            </p>
+          </div>
+          <button
+            type='button'
+            onClick={handleUseDemoServer}
+            className={buttonStyles.secondarySmall}
+          >
+            使用演示节点
+          </button>
+        </div>
+      </div>
+
+      <div className='bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden'>
+        <div className='p-4 border-b border-gray-100 dark:border-gray-700/50 bg-gray-50/50 dark:bg-gray-800/50'>
+          <h4 className='text-sm font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2'>
+            <span className='w-1 h-4 bg-cyan-500 rounded-full'></span>
+            服务连接
+          </h4>
+          <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
+            DecoTV 会将 /api/pansou/search 请求转发到此服务节点
+          </p>
+        </div>
+
+        <div className='p-4 space-y-4'>
+          <div>
+            <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5'>
+              服务地址（URL）
+            </label>
+            <div className='flex gap-2'>
+              <input
+                type='text'
+                value={settings.serverUrl}
+                onChange={(event) =>
+                  setSettings((prev) => ({
+                    ...prev,
+                    serverUrl: event.target.value,
+                  }))
+                }
+                placeholder='例如: https://pansou.example.com'
+                className='flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900/50 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all placeholder-gray-400 dark:placeholder-gray-500'
+              />
+              <button
+                type='button'
+                onClick={handleTest}
+                disabled={isLoading('testPanSouServer') || !currentServerUrl}
+                className={`shrink-0 px-4 py-2 text-sm font-medium rounded-lg transition-all ${
+                  isLoading('testPanSouServer') || !currentServerUrl
+                    ? buttonStyles.disabled
+                    : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm hover:shadow-md'
+                }`}
+              >
+                {isLoading('testPanSouServer') ? '测试中...' : '连通性测试'}
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5'>
+              API Token / 鉴权密钥
+              <span className='text-xs text-gray-400 dark:text-gray-500 font-normal ml-2'>
+                选填
+              </span>
+            </label>
+            <input
+              type='text'
+              value={settings.token}
+              onChange={(event) =>
+                setSettings((prev) => ({
+                  ...prev,
+                  token: event.target.value,
+                }))
+              }
+              placeholder='留空表示不携带 Authorization'
+              className='w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900/50 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all font-mono placeholder-gray-400 dark:placeholder-gray-500'
+            />
+          </div>
+
+          {testResult && (
+            <div
+              className={`rounded-lg border p-3 ${
+                testResult.success
+                  ? 'bg-emerald-50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800'
+                  : 'bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-800'
+              }`}
+            >
+              <p
+                className={`text-sm font-medium ${
+                  testResult.success
+                    ? 'text-emerald-800 dark:text-emerald-300'
+                    : 'text-red-800 dark:text-red-300'
+                }`}
+              >
+                {testResult.success ? '节点连接成功' : '节点连接失败'}
+              </p>
+              {testResult.success ? (
+                <div className='mt-1 text-xs text-emerald-700 dark:text-emerald-400 space-y-0.5'>
+                  <p>延迟: {testResult.latency}ms</p>
+                  <p>健康检查状态: {testResult.healthStatus}</p>
+                  <p>搜索接口状态: {testResult.searchStatus}</p>
+                  <p>测试返回结果数: {testResult.searchResultCount ?? 0}</p>
+                </div>
+              ) : (
+                <p className='mt-1 text-xs text-red-700 dark:text-red-400'>
+                  {testResult.error || '连接异常，请检查地址与鉴权配置'}
+                </p>
+              )}
+            </div>
+          )}
+
+          <div className='rounded-lg border border-gray-100 dark:border-gray-700/50 bg-gray-50 dark:bg-gray-900/30 p-3'>
+            <p className='text-xs text-gray-600 dark:text-gray-400'>
+              默认演示地址：{normalizeServerUrl(DEFAULT_PANSOU_SERVER_URL)}
+            </p>
+            {isDemoSelected && (
+              <p className='text-xs text-cyan-600 dark:text-cyan-400 mt-1'>
+                当前已选中演示节点
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className='flex justify-end'>
+        <button
+          type='button'
+          onClick={handleSave}
+          disabled={isLoading('savePanSouConfig')}
+          className={`px-4 py-2 rounded-lg transition-colors ${
+            isLoading('savePanSouConfig')
+              ? buttonStyles.disabled
+              : buttonStyles.success
+          }`}
+        >
+          {isLoading('savePanSouConfig') ? '保存中...' : '保存配置'}
+        </button>
+      </div>
+
+      <AlertModal
+        isOpen={alertModal.isOpen}
+        onClose={hideAlert}
+        type={alertModal.type}
+        title={alertModal.title}
+        message={alertModal.message}
+        timer={alertModal.timer}
+        showConfirm={alertModal.showConfirm}
+      />
+    </div>
+  );
+};
+
 function AdminPageClient() {
+  const router = useRouter();
   const { alertModal, showAlert, hideAlert } = useAlertModal();
   const { isLoading, withLoading } = useLoadingState();
   const [config, setConfig] = useState<AdminConfig | null>(null);
@@ -6281,6 +8316,8 @@ function AdminPageClient() {
     siteConfig: false,
     categoryConfig: false,
     configFile: false,
+    danmuConfig: false,
+    pansouConfig: false,
     dataMigration: false,
   });
 
@@ -6372,6 +8409,11 @@ function AdminPageClient() {
     },
     [loadLocalConfig],
   );
+
+  const refreshConfigAfterMutation = useCallback(async () => {
+    await fetchConfig();
+    router.refresh();
+  }, [fetchConfig, router]);
 
   // 同步配置到后端内存（本地模式专用）
   const syncConfigToBackend = useCallback(async (configToSync: AdminConfig) => {
@@ -6589,7 +8631,7 @@ function AdminPageClient() {
           throw new Error(`重置失败: ${response.status}`);
         }
         showSuccess('重置成功，请刷新页面！', showAlert);
-        await fetchConfig();
+        await refreshConfigAfterMutation();
         setShowResetConfigModal(false);
       } catch (err) {
         showError(err instanceof Error ? err.message : '重置失败', showAlert);
@@ -6718,7 +8760,7 @@ function AdminPageClient() {
             >
               <ConfigFileComponent
                 config={config}
-                refreshConfig={fetchConfig}
+                refreshConfig={refreshConfigAfterMutation}
                 storageMode={storageMode}
                 updateConfig={updateConfig}
               />
@@ -6737,7 +8779,10 @@ function AdminPageClient() {
             isExpanded={expandedTabs.siteConfig}
             onToggle={() => toggleTab('siteConfig')}
           >
-            <SiteConfigComponent config={config} refreshConfig={fetchConfig} />
+            <SiteConfigComponent
+              config={config}
+              refreshConfig={refreshConfigAfterMutation}
+            />
           </CollapsibleTab>
 
           <div className='space-y-4'>
@@ -6753,7 +8798,7 @@ function AdminPageClient() {
               <UserConfig
                 config={config}
                 role={role}
-                refreshConfig={fetchConfig}
+                refreshConfig={refreshConfigAfterMutation}
               />
             </CollapsibleTab>
 
@@ -6768,7 +8813,7 @@ function AdminPageClient() {
             >
               <VideoSourceConfig
                 config={config}
-                refreshConfig={fetchConfig}
+                refreshConfig={refreshConfigAfterMutation}
                 storageMode={storageMode}
                 updateConfig={updateConfig}
               />
@@ -6785,7 +8830,7 @@ function AdminPageClient() {
             >
               <LiveSourceConfig
                 config={config}
-                refreshConfig={fetchConfig}
+                refreshConfig={refreshConfigAfterMutation}
                 storageMode={storageMode}
                 updateConfig={updateConfig}
               />
@@ -6795,7 +8840,10 @@ function AdminPageClient() {
             <CollapsibleTab
               title='TVbox配置'
               icon={
-                <Tv size={20} className='text-gray-600 dark:text-gray-400' />
+                <Package
+                  size={20}
+                  className='text-gray-600 dark:text-gray-400'
+                />
               }
               isExpanded={expandedTabs.tvboxConfig}
               onToggle={() => toggleTab('tvboxConfig')}
@@ -7314,6 +9362,38 @@ function AdminPageClient() {
               </div>
             </CollapsibleTab>
 
+            {/* 弹幕配置标签 */}
+            <CollapsibleTab
+              title='弹幕配置'
+              icon={
+                <MessageSquareText
+                  size={20}
+                  className='text-gray-600 dark:text-gray-400'
+                />
+              }
+              isExpanded={expandedTabs.danmuConfig}
+              onToggle={() => toggleTab('danmuConfig')}
+            >
+              <DanmuConfigComponent
+                config={config}
+                refreshConfig={refreshConfigAfterMutation}
+              />
+            </CollapsibleTab>
+
+            <CollapsibleTab
+              title='PanSou 配置'
+              icon={
+                <Cloud size={20} className='text-gray-600 dark:text-gray-400' />
+              }
+              isExpanded={expandedTabs.pansouConfig}
+              onToggle={() => toggleTab('pansouConfig')}
+            >
+              <PanSouConfigPanel
+                config={config}
+                refreshConfig={refreshConfigAfterMutation}
+              />
+            </CollapsibleTab>
+
             {/* 分类配置标签 */}
             <CollapsibleTab
               title='分类配置'
@@ -7326,7 +9406,10 @@ function AdminPageClient() {
               isExpanded={expandedTabs.categoryConfig}
               onToggle={() => toggleTab('categoryConfig')}
             >
-              <CategoryConfig config={config} refreshConfig={fetchConfig} />
+              <CategoryConfig
+                config={config}
+                refreshConfig={refreshConfigAfterMutation}
+              />
             </CollapsibleTab>
 
             {/* 数据迁移标签 - 仅站长可见 */}
@@ -7342,7 +9425,7 @@ function AdminPageClient() {
                 isExpanded={expandedTabs.dataMigration}
                 onToggle={() => toggleTab('dataMigration')}
               >
-                <DataMigration onRefreshConfig={fetchConfig} />
+                <DataMigration onRefreshConfig={refreshConfigAfterMutation} />
               </CollapsibleTab>
             )}
           </div>

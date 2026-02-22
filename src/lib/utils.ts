@@ -2,83 +2,12 @@
 import he from 'he';
 import Hls from 'hls.js';
 
-function getDoubanImageProxyConfig(): {
-  proxyType:
-    | 'direct'
-    | 'server'
-    | 'img3'
-    | 'cmliussss-cdn-tencent'
-    | 'cmliussss-cdn-ali'
-    | 'custom';
-  proxyUrl: string;
-} {
-  const doubanImageProxyType =
-    localStorage.getItem('doubanImageProxyType') ||
-    (window as any).RUNTIME_CONFIG?.DOUBAN_IMAGE_PROXY_TYPE ||
-    'cmliussss-cdn-tencent';
-  const doubanImageProxy =
-    localStorage.getItem('doubanImageProxyUrl') ||
-    (window as any).RUNTIME_CONFIG?.DOUBAN_IMAGE_PROXY ||
-    '';
-  return {
-    proxyType: doubanImageProxyType,
-    proxyUrl: doubanImageProxy,
-  };
-}
+import { resolveImageUrl } from './image-url';
 
-/**
- * 处理图片 URL，如果设置了图片代理则使用代理
- * 同时处理 Mixed Content 问题（HTTP 图片在 HTTPS 页面无法显示）
- */
 export function processImageUrl(originalUrl: string): string {
-  if (!originalUrl) return originalUrl;
-
-  // ========================================
-  // 🛡️ 处理 Mixed Content 问题
-  // HTTPS 页面无法加载 HTTP 图片，使用公共代理服务
-  // ========================================
-  if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
-    if (originalUrl.startsWith('http://')) {
-      // 使用 wsrv.nl 公共图片代理服务（免费、稳定、全球 CDN）
-      // 文档: https://wsrv.nl/
-      return `https://wsrv.nl/?url=${encodeURIComponent(originalUrl)}&default=blank`;
-    }
-  }
-
-  // 仅处理豆瓣图片代理
-  if (!originalUrl.includes('doubanio.com')) {
-    return originalUrl;
-  }
-
-  const { proxyType, proxyUrl } = getDoubanImageProxyConfig();
-  switch (proxyType) {
-    case 'server':
-      return `/api/image-proxy?url=${encodeURIComponent(originalUrl)}`;
-    case 'img3':
-      return originalUrl.replace(/img\d+\.doubanio\.com/g, 'img3.doubanio.com');
-    case 'cmliussss-cdn-tencent':
-      return originalUrl.replace(
-        /img\d+\.doubanio\.com/g,
-        'img.doubanio.cmliussss.net',
-      );
-    case 'cmliussss-cdn-ali':
-      return originalUrl.replace(
-        /img\d+\.doubanio\.com/g,
-        'img.doubanio.cmliussss.com',
-      );
-    case 'custom':
-      return `${proxyUrl}${encodeURIComponent(originalUrl)}`;
-    case 'direct':
-    default:
-      return originalUrl;
-  }
+  return resolveImageUrl(originalUrl, { wsrvWidth: 256 });
 }
 
-/**
- * 从m3u8地址获取视频质量等级和网络信息
- * @param m3u8Url m3u8播放列表的URL
- * @returns Promise<{quality: string, loadSpeed: string, pingTime: number}> 视频质量等级和网络信息
- */
 export async function getVideoResolutionFromM3u8(m3u8Url: string): Promise<{
   quality: string; // 如720p、1080p等
   loadSpeed: string; // 自动转换为KB/s或MB/s

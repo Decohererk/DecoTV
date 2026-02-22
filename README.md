@@ -1,9 +1,10 @@
 <!-- markdownlint-disable MD033 MD026 MD034 -->
 
-# DecoTV
-
-<div align="center"src="public/logo.png" alt="DecoTV Logo" width="120">
-</div>
+<h1 align="center">
+  <img src="public/logo.png" alt="DecoTV Logo" width="160" style="margin-bottom: 12px;" />
+  <br />
+  DecoTV
+</h1>
 
 > 🎬 **DecoTV** 是一个开箱即用的、跨平台的影视聚合播放器。它基于 **Next.js 16** + **Tailwind&nbsp;CSS 4** + **TypeScript 5** 构建，支持多资源搜索、在线播放、收藏同步、播放记录、云端存储，让你可以随时随地畅享海量免费影视内容。**支持本地无数据库模式、CMS 全量代理、隐私纵深防御等企业级特性。**
 
@@ -50,10 +51,16 @@
 - 🔍 **多源聚合搜索**：一次搜索立刻返回全源结果。
 - 📄 **丰富详情页**：支持剧集列表、演员、年份、简介等完整信息展示。
 - ▶️ **流畅在线播放**：集成 HLS.js & ArtPlayer。
+- 🖥️ **网页投屏（Google Cast）**：支持在网页端直接发起投屏，并提供 iOS 设备兼容提示。
 - ❤️ **收藏 + 继续观看**：支持 Kvrocks/Redis/Upstash 存储，多端同步进度。
 - 👤 **用户注册系统**：支持用户自助注册（可选），带图形验证码防机器人。
 - 📱 **PWA**：离线缓存、安装到桌面/主屏，移动端原生体验。
 - 🌗 **响应式布局**：桌面侧边栏 + 移动底部导航，自适应各种屏幕尺寸。
+- 📺 **弹幕功能**：集成弹弹play弹幕库，官方镜像开箱即用，支持模糊匹配优化、手动匹配与多节点自定义配置。
+- ☁️ **PanSou 网盘搜索**：支持对接远程 PanSou 节点，提供聚合网盘搜索能力，并可在后台灵活配置节点与鉴权。
+- ⬇️ **视频资源下载能力**：支持浏览器分片下载与服务端 FFmpeg 转存下载，增强任务管理、重试与超时处理。
+- 📡 **灵活直播体验**：支持多直播源配置、分页切换优化与 m3u8/flv/mp4 自动识别处理。
+- 🧠 **豆瓣信息增强**：支持标题反查豆瓣 ID、并行抓取与图片代理，详情页信息更完整。
 - 👿 **智能去广告**：自动跳过视频中的切片广告（实验性）。
 - 🏠 **本地无数据库模式**：无需 Redis，自动降级为浏览器 localStorage 存储。
 - 🌐 **CMS 全量代理**：根绝 Mixed Content 和 CORS 问题，支持任意第三方源。
@@ -78,6 +85,7 @@
 - [⚙️ 配置文件](#️-配置文件)
 - [🔄 自动更新](#-自动更新)
 - [🌍 环境变量](#-环境变量)
+- [⬇️ 下载功能使用指南](#️-下载功能使用指南)
 - [Roadmap](#roadmap)
 - [📺 AndroidTV 使用](#-androidtv-使用)
 - [🔒 安全与隐私提醒](#-安全与隐私提醒)
@@ -410,6 +418,53 @@ dockge/komodo 等 docker compose UI 也有自动更新功能
 | cmliussss-cdn-ali     | 使用 [CMLiussss](https://github.com/cmliu) 提供的阿里云 CDN |
 | custom                | 使用自定义代理（需配置 NEXT_PUBLIC_DOUBAN_IMAGE_PROXY）     |
 
+### 弹幕功能配置
+
+DecoTV 集成了 [弹弹play开放平台](https://www.dandanplay.com/) 提供的弹幕库，让您在观看视频时享受弹幕互动体验。
+
+**🎉 开箱即用**：官方 Docker 镜像已内置弹幕服务凭证，无需任何配置即可使用弹幕功能。
+
+> 感谢 [弹弹play](https://www.dandanplay.com/) 为 DecoTV 提供弹幕服务支持！
+
+### 网盘搜索（PanSou）配置
+
+DecoTV 的网盘搜索采用远程 PanSou 节点转发模式。推荐先部署 [fish2018/pansou](https://github.com/fish2018/pansou)，确认服务可访问后，在后台 `PanSou 配置` 中填入服务地址（可选填写 Token）。
+
+快速示例：
+
+1. 部署 PanSou 服务并确保 `https://your-pansou-domain/api/health` 可访问。
+2. 进入 DecoTV 后台 `PanSou 配置` 页面。
+3. 填写服务地址（例如 `https://your-pansou-domain`），按需填写 `API Token / 鉴权密钥`。
+4. 先执行连通性测试，再保存配置即可生效。
+
+## ⬇️ 下载功能使用指南
+
+### 1) 下载当前集（浏览器分片下载）
+
+- 在播放页点击 `下载当前集`。
+- m3u8 资源会自动解析分片并下载，完成后在浏览器本地合并导出。
+- 该模式不依赖 FFmpeg，适合大部分 Web 部署场景。
+
+### 2) FFmpeg 转存下载（服务端）
+
+- 在播放页点击 `FFmpeg 转存下载`。
+- 此模式要求部署环境可执行 `ffmpeg`/`ffprobe`（推荐 Docker/VPS）。
+- 在 Vercel 等 Serverless 环境会返回提示：`该功能仅支持 Docker/VPS 部署`。
+
+### 3) 推荐环境与可选变量
+
+- 推荐：Docker / VPS（稳定支持浏览器下载 + FFmpeg 转存）。
+- 可选变量：
+- `FFMPEG_PATH`：自定义 ffmpeg 可执行路径。
+- `FFPROBE_PATH`：自定义 ffprobe 可执行路径。
+- `FFMPEG_DOWNLOAD_DIR`：服务端转存文件目录。
+- `FFMPEG_ALLOW_SERVERLESS=true`：仅在你明确具备可执行二进制能力时使用。
+
+### 4) 常见错误排查
+
+- `拉取播放列表失败 (502)`：通常是上游 m3u8 源需要特定 `Referer/Origin`，请确认源可访问，或切换其他源重试。
+- `FFmpeg API request failed (500/501)`：检查部署环境是否安装 FFmpeg；无二进制能力时请改用 `下载当前集`。
+
 ## Roadmap
 
 - [ ] 多语言国际化支持
@@ -417,8 +472,8 @@ dockge/komodo 等 docker compose UI 也有自动更新功能
 - [ ] 手机端 APP 开发
 - [ ] 智能推荐算法
 - [ ] 用户评分系统
-- [ ] 弹幕功能
-- [ ] 离线下载功能
+- [x] 弹幕功能（集成弹弹play弹幕库）
+- [x] 下载管理（浏览器分片下载 + FFmpeg 转存）
 
 ## 📺 AndroidTV 使用
 
@@ -484,7 +539,7 @@ API 地址: https://your-domain.com?adult=1
 
 具体可见 [TVBox 配置优化说明](https://github.com/Decohererk/DecoTV/blob/main/TVBox%E9%85%8D%E7%BD%AE%E4%BC%98%E5%8C%96%E8%AF%B4%E6%98%8E.md) ,详细功能见/admin 管理页面 **TVbox 配置**
 
-## � 用户注册功能
+## 🧑‍💻 用户注册功能
 
 DecoTV 支持用户自助注册功能（可选），适合需要允许用户自行创建账号的场景。
 
@@ -507,7 +562,7 @@ NEXT_PUBLIC_STORAGE_TYPE=redis  # 或 upstash、kvrocks
 
 > ⚠️ **安全提示**：建议默认关闭注册，仅在需要时临时开启，注册完成后立即关闭。
 
-## �🔒 安全与隐私提醒
+## 🔒 安全与隐私提醒
 
 ### 请设置密码保护并关闭公网注册
 

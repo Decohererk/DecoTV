@@ -4,7 +4,7 @@ import { AlertCircle, CheckCircle, Download, Upload, X } from 'lucide-react';
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 
-interface ImportResult {
+export interface ImportResult {
   success: number;
   failed: number;
   skipped: number;
@@ -16,13 +16,13 @@ interface ImportResult {
   }>;
 }
 
-interface ImportExportModalProps {
+export interface ImportExportModalProps {
   isOpen: boolean;
   mode: 'import' | 'export' | 'result';
   onClose: () => void;
   onImport?: (
     file: File,
-    onProgress?: (current: number, total: number) => void
+    onProgress?: (current: number, total: number) => void,
   ) => Promise<ImportResult>;
   onExport?: (format?: 'array' | 'config') => void;
   result?: ImportResult;
@@ -101,10 +101,10 @@ export default function ImportExportModal({
             mode === 'import'
               ? 'bg-gradient-to-r from-blue-600 to-cyan-600'
               : mode === 'export'
-              ? 'bg-gradient-to-r from-green-600 to-emerald-600'
-              : result && result.failed > 0
-              ? 'bg-gradient-to-r from-yellow-600 to-orange-600'
-              : 'bg-gradient-to-r from-green-600 to-emerald-600'
+                ? 'bg-gradient-to-r from-green-600 to-emerald-600'
+                : result && result.failed > 0
+                  ? 'bg-gradient-to-r from-yellow-600 to-orange-600'
+                  : 'bg-gradient-to-r from-green-600 to-emerald-600'
           }`}
         >
           <div className='flex items-center justify-between'>
@@ -121,8 +121,8 @@ export default function ImportExportModal({
                   {mode === 'import'
                     ? '导入视频源'
                     : mode === 'export'
-                    ? '导出视频源'
-                    : '导入结果'}
+                      ? '导出视频源'
+                      : '导入结果'}
                 </h2>
                 <p className='text-white/80 text-xs mt-0.5'>
                   {mode === 'import'
@@ -130,8 +130,8 @@ export default function ImportExportModal({
                       ? `正在导入 ${importProgress.current}/${importProgress.total}`
                       : '从 JSON 文件导入配置'
                     : mode === 'export'
-                    ? '导出为 JSON 文件'
-                    : '查看导入详情'}
+                      ? '导出为 JSON 文件'
+                      : '查看导入详情'}
                 </p>
               </div>
             </div>
@@ -371,8 +371,8 @@ export default function ImportExportModal({
                         item.status === 'success'
                           ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
                           : item.status === 'skipped'
-                          ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'
-                          : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
+                            ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'
+                            : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
                       }`}
                     >
                       {item.status === 'success' ? (

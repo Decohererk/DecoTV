@@ -4,12 +4,12 @@
  */
 
 // 版本常量
-const CURRENT_SEMANTIC_VERSION = '1.2.0';
+const CURRENT_SEMANTIC_VERSION = '1.3.0';
 export const CURRENT_VERSION = CURRENT_SEMANTIC_VERSION;
 
 // 硬编码的构建时间戳(每次发布时更新)
 // 这是最后的回退值,确保即使所有文件读取都失败也能有一个基准
-export const BUILD_TIMESTAMP = '20260130154617';
+export const BUILD_TIMESTAMP = '20260212190112';
 
 const DEFAULT_UPDATE_REPO = 'Decohererk/DecoTV';
 const UPDATE_REPO = process.env.NEXT_PUBLIC_UPDATE_REPO || DEFAULT_UPDATE_REPO;
@@ -178,7 +178,7 @@ export async function getCurrentVersionInfo(): Promise<VersionInfo> {
     };
   } catch {
     // 降级处理：使用 VERSION.txt 的默认值
-    const timestamp = '20251212140536';
+    const timestamp = '20260212190112';
     return {
       version: CURRENT_VERSION,
       timestamp,

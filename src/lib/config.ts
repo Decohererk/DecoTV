@@ -3,6 +3,7 @@
 import { db } from '@/lib/db';
 
 import { AdminConfig } from './admin.types';
+import { getDefaultPanSouConfig, normalizePanSouConfig } from './pansou';
 
 export interface ApiSite {
   key: string;
@@ -57,9 +58,69 @@ export const API_CONFIG = {
 // 在模块加载时根据环境决定配置来源
 let cachedConfig: AdminConfig;
 
+function normalizeForComparison(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeForComparison(item));
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, item]) => item !== undefined)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, item]) => [key, normalizeForComparison(item)]),
+    );
+  }
+
+  return value;
+}
+
+function isConfigConsistent(
+  expected: AdminConfig,
+  actual: AdminConfig,
+): boolean {
+  return (
+    JSON.stringify(normalizeForComparison(expected)) ===
+    JSON.stringify(normalizeForComparison(actual))
+  );
+}
+
 // 清除配置缓存，强制下次 getConfig() 重新从存储读取
 export function invalidateConfigCache(): void {
   cachedConfig = undefined as unknown as AdminConfig;
+}
+
+export async function saveAdminConfigWithVerification(
+  config: AdminConfig,
+): Promise<AdminConfig> {
+  await db.saveAdminConfig(config);
+  invalidateConfigCache();
+
+  const persistedConfig = await db.getAdminConfig();
+  if (!persistedConfig) {
+    throw new Error('配置写入失败：写入后读取为空');
+  }
+
+  if (!isConfigConsistent(config, persistedConfig)) {
+    throw new Error('配置写入校验失败：写入后与提交内容不一致');
+  }
+
+  const checkedConfig = configSelfCheck(persistedConfig);
+  if (!isConfigConsistent(checkedConfig, persistedConfig)) {
+    await db.saveAdminConfig(checkedConfig);
+    const checkedPersisted = await db.getAdminConfig();
+    if (
+      !checkedPersisted ||
+      !isConfigConsistent(checkedConfig, checkedPersisted)
+    ) {
+      throw new Error('配置自检回写失败：写入后校验不一致');
+    }
+    cachedConfig = checkedPersisted;
+    return checkedPersisted;
+  }
+
+  cachedConfig = persistedConfig;
+  return persistedConfig;
 }
 
 // 从配置文件补充管理员配置
@@ -235,6 +296,7 @@ async function getInitConfig(
     SourceConfig: [],
     CustomCategories: [],
     LiveConfig: [],
+    PanSouConfig: getDefaultPanSouConfig(),
   };
 
   // 补充用户信息
@@ -345,33 +407,35 @@ export function getLocalModeConfig(): AdminConfig {
     SourceConfig: [],
     CustomCategories: [],
     LiveConfig: [],
+    PanSouConfig: getDefaultPanSouConfig(),
   };
   return adminConfig;
 }
 
 export async function getConfig(): Promise<AdminConfig> {
-  // 直接使用内存缓存
-  if (cachedConfig) {
-    return cachedConfig;
-  }
-
-  // 读 db
   let adminConfig: AdminConfig | null = null;
   try {
     adminConfig = await db.getAdminConfig();
   } catch (e) {
     console.error('获取管理员配置失败:', e);
+    if (cachedConfig) {
+      return cachedConfig;
+    }
   }
 
   // db 中无配置，执行一次初始化
   if (!adminConfig) {
-    adminConfig = await getInitConfig('');
+    const initConfig = await getInitConfig('');
+    return saveAdminConfigWithVerification(initConfig);
   }
-  adminConfig = configSelfCheck(adminConfig);
-  cachedConfig = adminConfig;
-  // 🐛 修复: 确保配置保存完成后再返回
-  await db.saveAdminConfig(cachedConfig);
-  return cachedConfig;
+
+  const checkedConfig = configSelfCheck(adminConfig);
+  if (!isConfigConsistent(checkedConfig, adminConfig)) {
+    return saveAdminConfigWithVerification(checkedConfig);
+  }
+
+  cachedConfig = checkedConfig;
+  return checkedConfig;
 }
 
 export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
@@ -397,6 +461,7 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
   if (!adminConfig.LiveConfig || !Array.isArray(adminConfig.LiveConfig)) {
     adminConfig.LiveConfig = [];
   }
+  adminConfig.PanSouConfig = normalizePanSouConfig(adminConfig.PanSouConfig);
 
   // 站长变更自检
   const ownerUser = process.env.USERNAME;
@@ -481,8 +546,7 @@ export async function resetConfig() {
     originConfig.ConfigFile,
     originConfig.ConfigSubscribtion,
   );
-  cachedConfig = adminConfig;
-  await db.saveAdminConfig(adminConfig);
+  await saveAdminConfigWithVerification(adminConfig);
 
   return;
 }

@@ -39,3 +39,6 @@ yarn-error.log*
 CHANGELOG.md
 
 pnpm-lock.yaml
+
+# reference snapshot (not part of DecoTV runtime code)
+pansou-ref-20260210/

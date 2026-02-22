@@ -2,6 +2,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
+import { revalidateAdminConfigViews } from '@/lib/admin-config-mutation';
 import { verifyApiAuth } from '@/lib/auth';
 import { resetConfig } from '@/lib/config';
 
@@ -39,6 +40,7 @@ export async function GET(request: NextRequest) {
 
   try {
     await resetConfig();
+    revalidateAdminConfigViews();
 
     return NextResponse.json(
       { ok: true },

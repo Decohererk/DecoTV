@@ -1,35 +1,29 @@
 'use client';
 
-import { ChevronLeft, ChevronRight, Menu } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { ChevronLeft, ChevronRight, Menu, MoveHorizontal } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-// 简单的 className 合并函数
 function cn(...classes: (string | boolean | undefined | null)[]): string {
   return classes.filter(Boolean).join(' ');
 }
 
 interface CategoryBarProps {
-  /** 分组数据: { 分组名: 频道数组 } */
   groupedChannels: { [key: string]: unknown[] };
-  /** 当前选中的分组 */
   selectedGroup: string;
-  /** 切换分组回调 */
   onGroupChange: (group: string) => void;
-  /** 打开分组选择器弹窗回调 */
   onOpenSelector?: () => void;
-  /** 是否禁用（切换直播源时） */
   disabled?: boolean;
-  /** 禁用时的提示文字 */
   disabledMessage?: string;
 }
 
-/**
- * 直播频道分类选择器组件 (工业级重构版)
- * - 强制单行显示，支持横向滚动
- * - 移动端：隐藏滚动条，手指滑屏
- * - PC 端：隐藏滚动条，两侧箭头控制 + 渐变遮罩
- * - 精准边界检测，防止高分屏小数点误差
- */
+interface DragState {
+  isActive: boolean;
+  pointerId: number | null;
+  startX: number;
+  startScrollLeft: number;
+  preventClickUntil: number;
+}
+
 export default function CategoryBar({
   groupedChannels,
   selectedGroup,
@@ -38,72 +32,57 @@ export default function CategoryBar({
   disabled = false,
   disabledMessage = '切换直播源中...',
 }: CategoryBarProps) {
-  // 滚动容器引用
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  // 分组按钮引用数组
   const buttonRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const dragStateRef = useRef<DragState>({
+    isActive: false,
+    pointerId: null,
+    startX: 0,
+    startScrollLeft: 0,
+    preventClickUntil: 0,
+  });
 
-  // 箭头显示状态
   const [showLeftArrow, setShowLeftArrow] = useState(false);
   const [showRightArrow, setShowRightArrow] = useState(false);
-  // 组件挂载状态
+  const [scrollProgress, setScrollProgress] = useState(0);
   const [isMounted, setIsMounted] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
 
-  // 滚动距离（每次点击箭头滚动的像素，约为容器宽度的 50%）
-  const SCROLL_DISTANCE = 300;
-  // 边界检测阈值（防止高分屏小数点误差）
   const BOUNDARY_THRESHOLD = 2;
+  const groups = useMemo(() => Object.keys(groupedChannels), [groupedChannels]);
+  const currentGroupCount = selectedGroup
+    ? groupedChannels[selectedGroup]?.length || 0
+    : 0;
 
-  // 获取分组列表
-  const groups = Object.keys(groupedChannels);
-
-  /**
-   * 精准边界检测 - 更新箭头显示状态
-   * 使用 2px 阈值防止高分屏下的小数点导致判断失误
-   */
   const checkScroll = useCallback(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
 
     const { scrollLeft, scrollWidth, clientWidth } = container;
-
-    // 左箭头：scrollLeft > 2px 时显示
     setShowLeftArrow(scrollLeft > BOUNDARY_THRESHOLD);
-    // 右箭头：未滚动到底部时显示（留 2px 误差）
     setShowRightArrow(
       scrollLeft < scrollWidth - clientWidth - BOUNDARY_THRESHOLD,
     );
+
+    const maxScrollableDistance = Math.max(scrollWidth - clientWidth, 0);
+    const progress =
+      maxScrollableDistance === 0
+        ? 0
+        : Math.min(1, Math.max(0, scrollLeft / maxScrollableDistance));
+    setScrollProgress(progress);
   }, []);
 
-  /**
-   * 向左滚动
-   */
-  const scrollLeft = useCallback(() => {
+  const scrollByDistance = useCallback((direction: -1 | 1) => {
     const container = scrollContainerRef.current;
     if (!container) return;
 
+    const distance = Math.max(260, Math.floor(container.clientWidth * 0.65));
     container.scrollBy({
-      left: -SCROLL_DISTANCE,
+      left: direction * distance,
       behavior: 'smooth',
     });
   }, []);
 
-  /**
-   * 向右滚动
-   */
-  const scrollRight = useCallback(() => {
-    const container = scrollContainerRef.current;
-    if (!container) return;
-
-    container.scrollBy({
-      left: SCROLL_DISTANCE,
-      behavior: 'smooth',
-    });
-  }, []);
-
-  /**
-   * 将选中的分组滚动到视口中央
-   */
   const scrollToActiveGroup = useCallback(() => {
     if (!selectedGroup) return;
 
@@ -113,7 +92,6 @@ export default function CategoryBar({
     const button = buttonRefs.current[groupIndex];
     if (!button) return;
 
-    // 使用 scrollIntoView 让选中的胶囊自动滚动到可视区域中央
     button.scrollIntoView({
       behavior: 'smooth',
       block: 'nearest',
@@ -121,28 +99,105 @@ export default function CategoryBar({
     });
   }, [selectedGroup, groups]);
 
-  /**
-   * 组件挂载后初始化
-   * - 延迟检测确保 DOM 完全渲染
-   * - 绑定 scroll 和 resize 事件
-   */
+  const endDrag = useCallback(() => {
+    dragStateRef.current.isActive = false;
+    dragStateRef.current.pointerId = null;
+    setIsDragging(false);
+  }, []);
+
+  const handlePointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (disabled) return;
+      // 仅在鼠标场景启用拖拽，避免触屏点击分类时误判为拖拽而吞掉点击
+      if (event.pointerType !== 'mouse') return;
+      if (event.button !== 0) return;
+
+      const container = scrollContainerRef.current;
+      if (!container) return;
+
+      dragStateRef.current.isActive = true;
+      dragStateRef.current.pointerId = event.pointerId;
+      dragStateRef.current.startX = event.clientX;
+      dragStateRef.current.startScrollLeft = container.scrollLeft;
+      setIsDragging(true);
+    },
+    [disabled],
+  );
+
+  const handlePointerMove = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const container = scrollContainerRef.current;
+      const dragState = dragStateRef.current;
+      if (!container || !dragState.isActive) return;
+
+      const deltaX = event.clientX - dragState.startX;
+      if (Math.abs(deltaX) > 6) {
+        dragState.preventClickUntil = Date.now() + 160;
+      }
+      container.scrollLeft = dragState.startScrollLeft - deltaX;
+    },
+    [],
+  );
+
+  const handlePointerUp = useCallback(
+    (_event: React.PointerEvent<HTMLDivElement>) => {
+      endDrag();
+    },
+    [endDrag],
+  );
+
+  const handleWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+    if (Math.abs(event.deltaY) < 4) return;
+
+    container.scrollBy({
+      left: event.deltaY,
+      behavior: 'auto',
+    });
+    event.preventDefault();
+  }, []);
+
+  const handleKeyboardNavigation = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (disabled || groups.length === 0) return;
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+
+      event.preventDefault();
+      const currentIndex = Math.max(0, groups.indexOf(selectedGroup));
+      const nextIndex =
+        event.key === 'ArrowRight'
+          ? Math.min(groups.length - 1, currentIndex + 1)
+          : Math.max(0, currentIndex - 1);
+      if (nextIndex !== currentIndex) {
+        onGroupChange(groups[nextIndex]);
+      }
+    },
+    [disabled, groups, onGroupChange, selectedGroup],
+  );
+
+  const handleGroupClick = useCallback(
+    (group: string) => {
+      if (disabled) return;
+      if (Date.now() < dragStateRef.current.preventClickUntil) return;
+      onGroupChange(group);
+    },
+    [disabled, onGroupChange],
+  );
+
   useEffect(() => {
     setIsMounted(true);
 
     const container = scrollContainerRef.current;
     if (!container) return;
 
-    // 立即检测一次
     checkScroll();
-
-    // 延迟 100ms 再检测一次，确保 DOM 完全渲染
     const initTimer = setTimeout(checkScroll, 100);
-    // 再延迟 300ms 检测，处理字体加载等延迟渲染
-    const delayTimer = setTimeout(checkScroll, 300);
+    const delayTimer = setTimeout(checkScroll, 260);
 
-    // 绑定 scroll 事件（使用 passive 提升性能）
     container.addEventListener('scroll', checkScroll, { passive: true });
-    // 绑定 resize 事件
     window.addEventListener('resize', checkScroll);
 
     return () => {
@@ -153,28 +208,30 @@ export default function CategoryBar({
     };
   }, [checkScroll]);
 
-  // 分组数据变化时重新检测
   useEffect(() => {
-    if (isMounted) {
-      // 延迟检测，等待新内容渲染
-      const timer = setTimeout(checkScroll, 50);
-      return () => clearTimeout(timer);
-    }
+    if (!isMounted) return;
+    const timer = setTimeout(checkScroll, 60);
+    return () => clearTimeout(timer);
   }, [groupedChannels, isMounted, checkScroll]);
 
-  // 当选中分组变化时，滚动到对应位置
   useEffect(() => {
-    if (isMounted) {
-      scrollToActiveGroup();
-    }
+    if (!isMounted) return;
+    scrollToActiveGroup();
   }, [selectedGroup, isMounted, scrollToActiveGroup]);
 
-  // 如果没有分组，不渲染
+  useEffect(() => {
+    return () => {
+      endDrag();
+    };
+  }, [endDrag]);
+
   if (groups.length === 0) return null;
+
+  const indicatorWidth = Math.max(14, Math.min(42, 100 / groups.length + 10));
+  const indicatorOffset = scrollProgress * (100 - indicatorWidth);
 
   return (
     <div className='mb-3 shrink-0 -mx-6'>
-      {/* 禁用状态提示 */}
       {disabled && disabledMessage && (
         <div className='flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400 px-6 pb-2'>
           <div className='w-2 h-2 bg-amber-500 rounded-full animate-pulse' />
@@ -182,45 +239,47 @@ export default function CategoryBar({
         </div>
       )}
 
-      {/* 分类选择器容器 */}
-      <div className='relative flex items-center gap-2 px-6 pb-3'>
-        {/* "全部分类"按钮 */}
-        {onOpenSelector && (
-          <button
-            onClick={onOpenSelector}
-            disabled={disabled}
-            className={cn(
-              'shrink-0 px-3 py-2 rounded-full text-sm font-medium',
-              'transition-all duration-200 border-2',
-              disabled
-                ? 'opacity-50 cursor-not-allowed border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 text-gray-400'
-                : 'border-green-500 dark:border-green-400 bg-white dark:bg-gray-800 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20',
-            )}
-            title='查看全部分类'
-          >
-            <div className='flex items-center gap-1.5'>
-              <Menu className='w-4 h-4' />
-              <span>全部分类</span>
-              <span className='text-xs opacity-75'>({groups.length})</span>
-            </div>
-          </button>
-        )}
+      <div className='relative flex flex-col gap-2 px-6 pb-3'>
+        <div className='flex items-center gap-2'>
+          {onOpenSelector && (
+            <button
+              onClick={onOpenSelector}
+              disabled={disabled}
+              className={cn(
+                'shrink-0 px-3 py-2 rounded-full text-sm font-medium',
+                'transition-all duration-200 border-2',
+                disabled
+                  ? 'opacity-50 cursor-not-allowed border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 text-gray-400'
+                  : 'border-green-500 dark:border-green-400 bg-white dark:bg-gray-800 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20',
+              )}
+              title='打开分类管理面板'
+            >
+              <div className='flex items-center gap-1.5'>
+                <Menu className='w-4 h-4' />
+                <span>分类面板</span>
+                <span className='text-xs opacity-75'>({groups.length})</span>
+              </div>
+            </button>
+          )}
 
-        {/* 分组标签滚动容器 */}
+          <div className='min-w-0 flex-1 px-3 py-2 rounded-full border border-gray-200 dark:border-gray-700 bg-white/70 dark:bg-gray-800/50 text-xs text-gray-600 dark:text-gray-300 flex items-center gap-2'>
+            <MoveHorizontal className='w-3.5 h-3.5 shrink-0 text-green-600 dark:text-green-400' />
+            <span className='truncate'>
+              当前分类: {selectedGroup || '全部'} ({currentGroupCount})
+            </span>
+          </div>
+        </div>
+
         <div className='relative flex-1 min-w-0'>
-          {/* 左侧箭头按钮 - 仅 PC 端显示 */}
           <button
-            onClick={scrollLeft}
+            onClick={() => scrollByDistance(-1)}
             disabled={!showLeftArrow}
             className={cn(
               'hidden lg:flex absolute left-0 top-1/2 -translate-y-1/2 z-20',
-              'w-9 h-9 items-center justify-center',
-              'rounded-full backdrop-blur-md',
-              'bg-black/40 dark:bg-black/60',
-              'text-white shadow-lg',
+              'w-9 h-9 items-center justify-center rounded-full backdrop-blur-md',
+              'bg-black/40 dark:bg-black/60 text-white shadow-lg',
               'transition-all duration-200 ease-out',
-              'hover:bg-green-500 hover:scale-110 hover:shadow-xl',
-              'active:scale-95',
+              'hover:bg-green-500 hover:scale-110 hover:shadow-xl active:scale-95',
               'focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2',
               showLeftArrow
                 ? 'opacity-100 pointer-events-auto translate-x-0'
@@ -231,19 +290,15 @@ export default function CategoryBar({
             <ChevronLeft className='w-5 h-5' />
           </button>
 
-          {/* 右侧箭头按钮 - 仅 PC 端显示 */}
           <button
-            onClick={scrollRight}
+            onClick={() => scrollByDistance(1)}
             disabled={!showRightArrow}
             className={cn(
               'hidden lg:flex absolute right-0 top-1/2 -translate-y-1/2 z-20',
-              'w-9 h-9 items-center justify-center',
-              'rounded-full backdrop-blur-md',
-              'bg-black/40 dark:bg-black/60',
-              'text-white shadow-lg',
+              'w-9 h-9 items-center justify-center rounded-full backdrop-blur-md',
+              'bg-black/40 dark:bg-black/60 text-white shadow-lg',
               'transition-all duration-200 ease-out',
-              'hover:bg-green-500 hover:scale-110 hover:shadow-xl',
-              'active:scale-95',
+              'hover:bg-green-500 hover:scale-110 hover:shadow-xl active:scale-95',
               'focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2',
               showRightArrow
                 ? 'opacity-100 pointer-events-auto translate-x-0'
@@ -254,7 +309,6 @@ export default function CategoryBar({
             <ChevronRight className='w-5 h-5' />
           </button>
 
-          {/* 左侧渐变遮罩 - 仅 PC 端显示 */}
           <div
             className={cn(
               'hidden lg:block absolute left-0 top-0 bottom-0 w-12 z-10',
@@ -264,7 +318,6 @@ export default function CategoryBar({
             )}
           />
 
-          {/* 右侧渐变遮罩 - 仅 PC 端显示 */}
           <div
             className={cn(
               'hidden lg:block absolute right-0 top-0 bottom-0 w-12 z-10',
@@ -274,13 +327,21 @@ export default function CategoryBar({
             )}
           />
 
-          {/* 横向滚动的分类标签列表 */}
           <div
             ref={scrollContainerRef}
+            tabIndex={0}
+            onWheel={handleWheel}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={endDrag}
+            onPointerLeave={endDrag}
+            onKeyDown={handleKeyboardNavigation}
             className={cn(
-              'flex gap-2 overflow-x-auto',
-              'lg:px-10', // PC 端添加内边距，防止被按钮遮挡
-              'scroll-smooth',
+              'flex gap-2 overflow-x-auto scroll-smooth select-none',
+              'lg:px-10',
+              'focus:outline-none focus:ring-2 focus:ring-green-500/40 rounded-xl',
+              isDragging ? 'cursor-grabbing' : 'cursor-grab',
             )}
             style={{
               scrollbarWidth: 'none',
@@ -288,7 +349,6 @@ export default function CategoryBar({
               WebkitOverflowScrolling: 'touch',
             }}
           >
-            {/* 隐藏 Webkit 滚动条的样式 */}
             <style jsx>{`
               div::-webkit-scrollbar {
                 display: none;
@@ -306,7 +366,7 @@ export default function CategoryBar({
                   ref={(el) => {
                     buttonRefs.current[index] = el;
                   }}
-                  onClick={() => onGroupChange(group)}
+                  onClick={() => handleGroupClick(group)}
                   disabled={disabled}
                   className={cn(
                     'shrink-0 px-4 py-2 rounded-full text-sm font-medium',
@@ -318,7 +378,7 @@ export default function CategoryBar({
                       'bg-green-500 text-white shadow-lg shadow-green-500/30 scale-105',
                     !disabled &&
                       !isActive &&
-                      'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 hover:scale-102 active:scale-98',
+                      'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600',
                   )}
                 >
                   {group}
@@ -335,6 +395,18 @@ export default function CategoryBar({
                 </button>
               );
             })}
+          </div>
+
+          <div className='hidden lg:block mt-2 px-10'>
+            <div className='h-1 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden'>
+              <div
+                className='h-full rounded-full bg-green-500/70 transition-all duration-300'
+                style={{
+                  width: `${indicatorWidth}%`,
+                  transform: `translateX(${indicatorOffset}%)`,
+                }}
+              />
+            </div>
           </div>
         </div>
       </div>

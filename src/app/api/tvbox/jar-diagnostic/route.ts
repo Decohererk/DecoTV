@@ -250,7 +250,7 @@ export async function GET(request: NextRequest) {
 
   // eslint-disable-next-line no-console
   console.log(
-    `🔍 开始 JAR 源诊断测试，环境: ${env.isDomestic ? '国内' : '国际'}`
+    `🔍 开始 JAR 源诊断测试，环境: ${env.isDomestic ? '国内' : '国际'}`,
   );
 
   // 并发测试所有源（但限制并发数）
@@ -277,7 +277,7 @@ export async function GET(request: NextRequest) {
     averageResponseTime:
       results.reduce((sum, r) => sum + r.responseTime, 0) / results.length,
     fastestSource: successResults.sort(
-      (a, b) => a.responseTime - b.responseTime
+      (a, b) => a.responseTime - b.responseTime,
     )[0]?.url,
     recommendedSource: successResults[0]?.url,
   };
@@ -294,7 +294,7 @@ export async function GET(request: NextRequest) {
     recommendations.push('  3. 尝试切换网络（WiFi/移动数据）');
     recommendations.push('  4. 如在国内，建议使用代理或VPN');
     recommendations.push(
-      '  5. DNS 解析可能存在问题，尝试更换DNS（如 8.8.8.8）'
+      '  5. DNS 解析可能存在问题，尝试更换DNS（如 8.8.8.8）',
     );
     recommendations.push('');
     recommendations.push('💡 如果您在国内，GitHub 资源访问受限是正常现象');
@@ -327,10 +327,10 @@ export async function GET(request: NextRequest) {
   // 分析失败原因
   const timeouts = failedResults.filter((r) => r.status === 'timeout').length;
   const httpErrors = failedResults.filter(
-    (r) => r.httpStatus && (r.httpStatus === 403 || r.httpStatus === 404)
+    (r) => r.httpStatus && (r.httpStatus === 403 || r.httpStatus === 404),
   ).length;
   const invalidJars = failedResults.filter(
-    (r) => r.status === 'invalid'
+    (r) => r.status === 'invalid',
   ).length;
 
   if (timeouts > 0 || httpErrors > 0 || invalidJars > 0) {
@@ -343,13 +343,13 @@ export async function GET(request: NextRequest) {
   }
   if (httpErrors > 0) {
     recommendations.push(
-      `  • ${httpErrors} 个源返回 HTTP 错误（403/404） - 源文件可能已失效或被限制访问`
+      `  • ${httpErrors} 个源返回 HTTP 错误（403/404） - 源文件可能已失效或被限制访问`,
     );
     recommendations.push('    建议：这些源可能需要代理或已下线，请避免使用');
   }
   if (invalidJars > 0) {
     recommendations.push(
-      `  • ${invalidJars} 个源返回无效 JAR 文件 - 文件格式错误或已损坏`
+      `  • ${invalidJars} 个源返回无效 JAR 文件 - 文件格式错误或已损坏`,
     );
   }
 
@@ -358,7 +358,7 @@ export async function GET(request: NextRequest) {
   recommendations.push('🌐 网络环境检测：');
   recommendations.push(`  • 时区: ${env.timezone}`);
   recommendations.push(
-    `  • 判定环境: ${env.isDomestic ? '🇨🇳 国内' : '🌍 海外'}`
+    `  • 判定环境: ${env.isDomestic ? '🇨🇳 国内' : '🌍 海外'}`,
   );
   if (env.detectionDetails) {
     recommendations.push(`  • 时区判定: ${env.detectionDetails.timezone}`);

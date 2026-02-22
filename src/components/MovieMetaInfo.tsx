@@ -1,10 +1,11 @@
 'use client';
 
 import { ChevronLeft, ChevronRight, User } from 'lucide-react';
-import Image from 'next/image';
 import { memo, useCallback, useRef, useState } from 'react';
 
 import type { DoubanCelebrity, DoubanMovieDetail } from '@/hooks/useDoubanInfo';
+
+import ExternalImage from '@/components/ExternalImage';
 
 // ============================================================================
 // Types
@@ -82,7 +83,7 @@ const CelebrityCard = memo(function CelebrityCard({
       {/* 头像 */}
       <div className='relative w-16 h-16 rounded-full overflow-hidden bg-gray-200 dark:bg-gray-700 border-2 border-gray-100 dark:border-gray-600 shadow-md'>
         {avatarUrl && !imageError ? (
-          <Image
+          <ExternalImage
             src={avatarUrl}
             alt={celebrity.name}
             fill

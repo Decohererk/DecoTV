@@ -1,0 +1,35 @@
+name: ❓ 咨询 / 求助
+description: 关于配置、部署或使用的问题
+title: '[Help]: '
+labels: ['type: question', 'help wanted']
+body:
+  - type: checkboxes
+    id: check-docs
+    attributes:
+      label: 查阅文档
+      options:
+        - label: 我已经阅读过 README 和相关文档。
+          required: true
+
+  - type: dropdown
+    id: question-type
+    attributes:
+      label: 问题类型
+      options:
+        - 部署问题 (Deployment)
+        - 配置问题 (Config)
+        - 播放问题 (Playback)
+        - 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: |
+        请详细描述您的问题。
+        如果需要私下支持，请通过 Telegram 联系作者: https://t.me/katelya77
+      placeholder: 在此描述你的问题...
+    validations:
+      required: true

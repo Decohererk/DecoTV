@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
         'Access-Control-Allow-Headers': 'Content-Type, Cookie',
         'X-Adult-Filter': adultFilterEnabled ? 'enabled' : 'disabled',
       },
-    }
+    },
   );
 }
 

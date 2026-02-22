@@ -2,6 +2,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
+import { persistAdminConfigMutation } from '@/lib/admin-config-mutation';
 import { getConfig, refineConfig } from '@/lib/config';
 import { db } from '@/lib/db';
 import { fetchVideoDetail } from '@/lib/fetchVideoDetail';
@@ -65,8 +66,7 @@ async function refreshAllLiveChannels() {
   // 等待所有刷新任务完成
   await Promise.all(refreshPromises);
 
-  // 保存配置
-  await db.saveAdminConfig(config);
+  await persistAdminConfigMutation(config);
 }
 
 async function refreshConfig() {
@@ -105,7 +105,7 @@ async function refreshConfig() {
       config.ConfigFile = decodedContent;
       config.ConfigSubscribtion.LastCheck = new Date().toISOString();
       config = refineConfig(config);
-      await db.saveAdminConfig(config);
+      await persistAdminConfigMutation(config);
     } catch (e) {
       console.error('刷新配置失败:', e);
     }

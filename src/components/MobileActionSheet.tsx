@@ -1,7 +1,8 @@
 import { Radio, X } from 'lucide-react';
-import Image from 'next/image';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+
+import ExternalImage from '@/components/ExternalImage';
 
 interface ActionItem {
   id: string;
@@ -15,6 +16,7 @@ interface ActionItem {
 interface MobileActionSheetProps {
   isOpen: boolean;
   onClose: () => void;
+  onAfterClose?: () => void;
   title: string;
   actions: ActionItem[];
   poster?: string;
@@ -29,6 +31,7 @@ interface MobileActionSheetProps {
 const MobileActionSheet: React.FC<MobileActionSheetProps> = ({
   isOpen,
   onClose,
+  onAfterClose,
   title,
   actions,
   poster,
@@ -41,6 +44,10 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({
 }) => {
   const [isVisible, setIsVisible] = useState(false);
   const [isAnimating, setIsAnimating] = useState(false);
+  const onAfterCloseRef = useRef(onAfterClose);
+  useEffect(() => {
+    onAfterCloseRef.current = onAfterClose;
+  }, [onAfterClose]);
   // Portal 容器（将操作面板挂载到 body，避免被父级 contain/transform 影响）
   const [portalEl, setPortalEl] = useState<HTMLElement | null>(null);
 
@@ -79,6 +86,7 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({
       // 等待动画完成后隐藏组件
       timer = setTimeout(() => {
         setIsVisible(false);
+        onAfterCloseRef.current?.();
       }, 200);
     }
 
@@ -194,7 +202,7 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({
     >
       {/* 背景遮罩 */}
       <div
-        className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ease-out ${
+        className={`absolute inset-0 bg-black/70 transition-opacity duration-200 ease-out ${
           isAnimating ? 'opacity-100' : 'opacity-0'
         }`}
         onClick={onClose}
@@ -207,7 +215,6 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({
           e.preventDefault();
         }}
         style={{
-          backdropFilter: 'blur(4px)',
           willChange: 'opacity',
           touchAction: 'none', // 禁用所有触摸操作
         }}
@@ -215,7 +222,7 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({
 
       {/* 操作表单 */}
       <div
-        className='relative w-full max-w-lg mx-4 mb-4 bg-white dark:bg-gray-900 rounded-2xl shadow-2xl transition-all duration-200 ease-out'
+        className='relative w-full max-w-lg mx-4 mb-4 rounded-2xl border border-gray-200/70 bg-white shadow-xl transition-all duration-200 ease-out dark:border-gray-700/70 dark:bg-gray-900'
         onTouchMove={(e) => {
           // 允许操作表单内部滚动，阻止事件冒泡到外层
           e.stopPropagation();
@@ -236,7 +243,7 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({
           <div className='flex items-center gap-3 flex-1 min-w-0'>
             {poster && (
               <div className='relative w-12 h-16 rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800 shrink-0'>
-                <Image
+                <ExternalImage
                   src={poster}
                   alt={title}
                   fill
@@ -244,6 +251,8 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({
                     origin === 'live' ? 'object-contain' : 'object-cover'
                   }
                   loading='lazy'
+                  decoding='async'
+                  sizes='48px'
                 />
               </div>
             )}

@@ -55,7 +55,7 @@ function extractSpiderUrl(raw: string): string {
 
 async function tryFetchHead(
   url: string,
-  timeoutMs = 3500
+  timeoutMs = 3500,
 ): Promise<{ ok: boolean; status?: number; error?: string }> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort('timeout'), timeoutMs);
@@ -81,7 +81,7 @@ export async function GET(req: NextRequest) {
     if (!baseUrl) {
       return NextResponse.json(
         { ok: false, error: 'cannot determine base url' },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -130,7 +130,7 @@ export async function GET(req: NextRequest) {
 
       // 检查私网地址
       const privateApis = sites.filter(
-        (s: any) => typeof s?.api === 'string' && isPrivateHost(s.api)
+        (s: any) => typeof s?.api === 'string' && isPrivateHost(s.api),
       ).length;
       result.privateApis = privateApis;
       if (privateApis > 0) {
@@ -159,21 +159,21 @@ export async function GET(req: NextRequest) {
               // 优化错误提示，提供更详细的诊断信息
               if (spiderCheck.status === 404) {
                 result.issues.push(
-                  `spider 源文件不存在 (404) - 该 JAR 源可能已失效，建议使用 JAR 源诊断工具查找可用源`
+                  `spider 源文件不存在 (404) - 该 JAR 源可能已失效，建议使用 JAR 源诊断工具查找可用源`,
                 );
               } else if (spiderCheck.status === 403) {
                 result.issues.push(
-                  `spider 访问被拒绝 (403) - 该源可能需要代理访问或已限制访问`
+                  `spider 访问被拒绝 (403) - 该源可能需要代理访问或已限制访问`,
                 );
               } else if (spiderCheck.error?.includes('timeout')) {
                 result.issues.push(
-                  `spider 访问超时 - 网络延迟较高或源不可达，建议检查网络环境或更换源`
+                  `spider 访问超时 - 网络延迟较高或源不可达，建议检查网络环境或更换源`,
                 );
               } else {
                 result.issues.push(
                   `spider 不可用: ${
                     spiderCheck.status || spiderCheck.error
-                  } - 建议使用 JAR 源诊断工具测试可用源`
+                  } - 建议使用 JAR 源诊断工具测试可用源`,
                 );
               }
             }
@@ -194,7 +194,7 @@ export async function GET(req: NextRequest) {
     console.error('Diagnose failed', e);
     return NextResponse.json(
       { ok: false, error: e?.message || 'unknown error' },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

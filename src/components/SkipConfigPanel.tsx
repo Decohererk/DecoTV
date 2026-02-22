@@ -3,7 +3,7 @@
 import { Clock, FastForward, Settings, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-interface SkipConfigPanelProps {
+export interface SkipConfigPanelProps {
   isOpen: boolean;
   onClose: () => void;
   config: {
@@ -257,7 +257,7 @@ export default function SkipConfigPanel({
                     onChange={(e) => {
                       const hours = parseInt(e.target.value) || 0;
                       const minutes = Math.floor(
-                        (tempConfig.intro_time % 3600) / 60
+                        (tempConfig.intro_time % 3600) / 60,
                       );
                       const seconds = tempConfig.intro_time % 60;
                       setTempConfig((prev) => ({
@@ -295,7 +295,7 @@ export default function SkipConfigPanel({
                     onChange={(e) => {
                       const hours = Math.floor(tempConfig.intro_time / 3600);
                       const minutes = Math.floor(
-                        (tempConfig.intro_time % 3600) / 60
+                        (tempConfig.intro_time % 3600) / 60,
                       );
                       const seconds = parseInt(e.target.value) || 0;
                       setTempConfig((prev) => ({
@@ -386,7 +386,7 @@ export default function SkipConfigPanel({
                     value={
                       videoDuration > 0
                         ? Math.floor(
-                            (videoDuration + tempConfig.outro_time) / 3600
+                            (videoDuration + tempConfig.outro_time) / 3600,
                           )
                         : 0
                     }
@@ -395,7 +395,7 @@ export default function SkipConfigPanel({
                       const currentOutroTime =
                         videoDuration + tempConfig.outro_time;
                       const minutes = Math.floor(
-                        (currentOutroTime % 3600) / 60
+                        (currentOutroTime % 3600) / 60,
                       );
                       const seconds = currentOutroTime % 60;
                       const newOutroTime =
@@ -417,7 +417,7 @@ export default function SkipConfigPanel({
                       videoDuration > 0
                         ? Math.floor(
                             ((videoDuration + tempConfig.outro_time) % 3600) /
-                              60
+                              60,
                           )
                         : 0
                     }
@@ -452,7 +452,7 @@ export default function SkipConfigPanel({
                         videoDuration + tempConfig.outro_time;
                       const hours = Math.floor(currentOutroTime / 3600);
                       const minutes = Math.floor(
-                        (currentOutroTime % 3600) / 60
+                        (currentOutroTime % 3600) / 60,
                       );
                       const seconds = parseInt(e.target.value) || 0;
                       const newOutroTime =
