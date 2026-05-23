@@ -1,36 +1,24 @@
 'use client';
 
-import { ChevronLeft, ChevronRight, User } from 'lucide-react';
+import { ChevronLeft, ChevronRight, LoaderCircle, User } from 'lucide-react';
 import { memo, useCallback, useRef, useState } from 'react';
 
 import type { DoubanCelebrity, DoubanMovieDetail } from '@/hooks/useDoubanInfo';
 
 import ExternalImage from '@/components/ExternalImage';
 
-// ============================================================================
-// Types
-// ============================================================================
-
 interface MovieMetaInfoProps {
-  /** 豆瓣详情数据 */
   detail: DoubanMovieDetail | null;
-  /** 是否正在加载 */
   loading?: boolean;
-  /** 是否显示演员表 */
   showCast?: boolean;
-  /** 是否显示简介 */
   showSummary?: boolean;
-  /** 是否显示标签 */
   showTags?: boolean;
+  primarySummaryLabel?: string;
+  secondarySummary?: string;
+  secondarySummaryLabel?: string;
+  secondarySummaryLoading?: boolean;
 }
 
-// ============================================================================
-// Sub Components
-// ============================================================================
-
-/**
- * 元数据标签组件
- */
 const MetaTags = memo(function MetaTags({
   genres,
   countries,
@@ -56,7 +44,7 @@ const MetaTags = memo(function MetaTags({
       {allTags.map((tag, index) => (
         <span
           key={`${tag}-${index}`}
-          className='inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors'
+          className='inline-flex items-center rounded-full border border-gray-200 bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
         >
           {tag}
         </span>
@@ -65,9 +53,6 @@ const MetaTags = memo(function MetaTags({
   );
 });
 
-/**
- * 演员/导演头像卡片
- */
 const CelebrityCard = memo(function CelebrityCard({
   celebrity,
   role,
@@ -79,9 +64,8 @@ const CelebrityCard = memo(function CelebrityCard({
   const avatarUrl = celebrity.avatars?.medium || celebrity.avatars?.small;
 
   return (
-    <div className='flex flex-col items-center shrink-0 w-20'>
-      {/* 头像 */}
-      <div className='relative w-16 h-16 rounded-full overflow-hidden bg-gray-200 dark:bg-gray-700 border-2 border-gray-100 dark:border-gray-600 shadow-md'>
+    <div className='flex w-20 shrink-0 flex-col items-center'>
+      <div className='relative h-16 w-16 overflow-hidden rounded-full border-2 border-gray-100 bg-gray-200 shadow-md dark:border-gray-600 dark:bg-gray-700'>
         {avatarUrl && !imageError ? (
           <ExternalImage
             src={avatarUrl}
@@ -93,30 +77,25 @@ const CelebrityCard = memo(function CelebrityCard({
             sizes='64px'
           />
         ) : (
-          <div className='w-full h-full flex items-center justify-center'>
-            <User className='w-8 h-8 text-gray-400 dark:text-gray-500' />
+          <div className='flex h-full w-full items-center justify-center'>
+            <User className='h-8 w-8 text-gray-400 dark:text-gray-500' />
           </div>
         )}
       </div>
 
-      {/* 姓名 */}
-      <p className='mt-2 text-xs font-medium text-gray-900 dark:text-gray-100 text-center truncate w-full'>
+      <p className='mt-2 w-full truncate text-center text-xs font-medium text-gray-900 dark:text-gray-100'>
         {celebrity.name}
       </p>
 
-      {/* 角色 */}
-      {role && (
-        <p className='text-xs text-gray-500 dark:text-gray-400 text-center truncate w-full'>
+      {role ? (
+        <p className='w-full truncate text-center text-xs text-gray-500 dark:text-gray-400'>
           {role}
         </p>
-      )}
+      ) : null}
     </div>
   );
 });
 
-/**
- * 演员阵容横向滚动列表
- */
 const CastSlider = memo(function CastSlider({
   directors,
   casts,
@@ -129,10 +108,10 @@ const CastSlider = memo(function CastSlider({
   const [showRightArrow, setShowRightArrow] = useState(true);
 
   const allCelebrities = [
-    ...(directors?.map((d) => ({ ...d, role: '导演' })) || []),
-    ...(casts?.map((c) => ({
-      ...c,
-      role: c.roles?.join('/') || '演员',
+    ...(directors?.map((director) => ({ ...director, role: '导演' })) || []),
+    ...(casts?.map((cast) => ({
+      ...cast,
+      role: cast.roles?.join('/') || '演员',
     })) || []),
   ];
 
@@ -145,52 +124,46 @@ const CastSlider = memo(function CastSlider({
 
   const scroll = useCallback((direction: 'left' | 'right') => {
     if (!scrollRef.current) return;
-    const scrollAmount = direction === 'left' ? -200 : 200;
-    scrollRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+    scrollRef.current.scrollBy({
+      left: direction === 'left' ? -200 : 200,
+      behavior: 'smooth',
+    });
   }, []);
 
   if (allCelebrities.length === 0) return null;
 
   return (
     <div className='relative'>
-      {/* 标题 */}
-      <h3 className='text-base font-semibold text-gray-900 dark:text-gray-100 mb-3'>
-        演员阵容
+      <h3 className='mb-3 text-base font-semibold text-gray-900 dark:text-gray-100'>
+        演职员
       </h3>
 
-      {/* 滚动容器 */}
       <div className='relative'>
-        {/* 左箭头 */}
-        {showLeftArrow && (
+        {showLeftArrow ? (
           <button
             onClick={() => scroll('left')}
-            className='absolute left-0 top-1/2 -translate-y-1/2 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm border border-gray-200 dark:border-gray-700 shadow-lg hover:bg-white dark:hover:bg-gray-700 transition-all'
-            aria-label='向左滚动'
+            className='absolute left-0 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-gray-200 bg-white/90 shadow-lg backdrop-blur-sm transition-all hover:bg-white dark:border-gray-700 dark:bg-gray-800/90 dark:hover:bg-gray-700'
+            aria-label='向左滚动演职员'
           >
-            <ChevronLeft className='w-5 h-5 text-gray-600 dark:text-gray-300' />
+            <ChevronLeft className='h-5 w-5 text-gray-600 dark:text-gray-300' />
           </button>
-        )}
+        ) : null}
 
-        {/* 右箭头 */}
-        {showRightArrow && (
+        {showRightArrow ? (
           <button
             onClick={() => scroll('right')}
-            className='absolute right-0 top-1/2 -translate-y-1/2 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm border border-gray-200 dark:border-gray-700 shadow-lg hover:bg-white dark:hover:bg-gray-700 transition-all'
-            aria-label='向右滚动'
+            className='absolute right-0 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-gray-200 bg-white/90 shadow-lg backdrop-blur-sm transition-all hover:bg-white dark:border-gray-700 dark:bg-gray-800/90 dark:hover:bg-gray-700'
+            aria-label='向右滚动演职员'
           >
-            <ChevronRight className='w-5 h-5 text-gray-600 dark:text-gray-300' />
+            <ChevronRight className='h-5 w-5 text-gray-600 dark:text-gray-300' />
           </button>
-        )}
+        ) : null}
 
-        {/* 演员列表 */}
         <div
           ref={scrollRef}
           onScroll={handleScroll}
-          className='flex gap-4 overflow-x-auto pb-2 scrollbar-hide'
-          style={{
-            scrollbarWidth: 'none',
-            msOverflowStyle: 'none',
-          }}
+          className='scrollbar-hide flex gap-4 overflow-x-auto pb-2'
+          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
           {allCelebrities.map((celebrity, index) => (
             <CelebrityCard
@@ -205,94 +178,167 @@ const CastSlider = memo(function CastSlider({
   );
 });
 
-/**
- * 影片简介组件
- */
-const Summary = memo(function Summary({ summary }: { summary?: string }) {
+const Summary = memo(function Summary({
+  summary,
+  primarySummaryLabel = '豆瓣简介',
+  secondarySummary,
+  secondarySummaryLabel = 'TMDB 简介',
+  secondarySummaryLoading = false,
+}: {
+  summary?: string;
+  primarySummaryLabel?: string;
+  secondarySummary?: string;
+  secondarySummaryLabel?: string;
+  secondarySummaryLoading?: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
+  const normalizedPrimary = (summary || '').trim();
+  const normalizedSecondary = (secondarySummary || '').trim();
+  const hasPrimary = Boolean(normalizedPrimary);
+  const hasSecondary = Boolean(normalizedSecondary);
 
-  if (!summary) return null;
+  const tabs = [
+    hasPrimary
+      ? {
+          key: 'primary' as const,
+          label: primarySummaryLabel,
+          value: normalizedPrimary,
+        }
+      : null,
+    hasSecondary || secondarySummaryLoading
+      ? {
+          key: 'secondary' as const,
+          label: secondarySummaryLabel,
+          value: normalizedSecondary,
+        }
+      : null,
+  ].filter(Boolean) as Array<{
+    key: 'primary' | 'secondary';
+    label: string;
+    value: string;
+  }>;
 
-  const isLong = summary.length > 200;
-  const displayText = expanded ? summary : summary.slice(0, 200);
+  const [activeTab, setActiveTab] = useState<'primary' | 'secondary'>(
+    hasPrimary ? 'primary' : 'secondary',
+  );
+
+  if (tabs.length === 0) {
+    return null;
+  }
+
+  const currentTab = tabs.find((tab) => tab.key === activeTab) || tabs[0];
+  const isSecondaryActive = currentTab.key === 'secondary';
+  const isLoading =
+    isSecondaryActive && secondarySummaryLoading && !currentTab.value;
+  const currentSummary = currentTab.value;
+
+  if (!currentSummary && !isLoading) {
+    return null;
+  }
+
+  const isLong = currentSummary.length > 200;
+  const displayText = expanded ? currentSummary : currentSummary.slice(0, 200);
 
   return (
     <div className='space-y-2'>
-      <h3 className='text-base font-semibold text-gray-900 dark:text-gray-100'>
-        剧情简介
-      </h3>
-      <p className='text-sm text-gray-600 dark:text-gray-400 leading-relaxed'>
-        {displayText}
-        {!expanded && isLong && '...'}
-      </p>
-      {isLong && (
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className='text-sm text-green-600 dark:text-green-400 hover:underline'
-        >
-          {expanded ? '收起' : '展开全部'}
-        </button>
+      <div className='flex items-center justify-between gap-3'>
+        <h3 className='text-base font-semibold text-gray-900 dark:text-gray-100'>
+          剧情简介
+        </h3>
+        {tabs.length > 1 ? (
+          <div className='inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5 dark:border-gray-700 dark:bg-gray-800'>
+            {tabs.map((tab) => (
+              <button
+                key={tab.key}
+                type='button'
+                onClick={() => {
+                  setActiveTab(tab.key);
+                  setExpanded(false);
+                }}
+                className={`rounded-md px-2.5 py-1 text-xs transition-colors ${
+                  currentTab.key === tab.key
+                    ? 'bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-gray-100'
+                    : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+
+      {isLoading ? (
+        <div className='flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400'>
+          <LoaderCircle className='h-4 w-4 animate-spin' />
+          <span>TMDB 简介加载中…</span>
+        </div>
+      ) : (
+        <>
+          <p className='text-sm leading-relaxed text-gray-600 dark:text-gray-400'>
+            {displayText}
+            {!expanded && isLong ? '...' : ''}
+          </p>
+          {isLong ? (
+            <button
+              onClick={() => setExpanded((prev) => !prev)}
+              className='text-sm text-green-600 hover:underline dark:text-green-400'
+            >
+              {expanded ? '收起' : '展开更多'}
+            </button>
+          ) : null}
+        </>
       )}
     </div>
   );
 });
 
-/**
- * 骨架屏加载状态
- */
 const Skeleton = memo(function Skeleton() {
   return (
-    <div className='space-y-6 animate-pulse'>
-      {/* 标签骨架 */}
+    <div className='animate-pulse space-y-6'>
       <div className='flex gap-2'>
         {[1, 2, 3, 4].map((i) => (
           <div
             key={i}
-            className='h-6 w-16 bg-gray-200 dark:bg-gray-700 rounded-full'
+            className='h-6 w-16 rounded-full bg-gray-200 dark:bg-gray-700'
           />
         ))}
       </div>
 
-      {/* 演员骨架 */}
       <div>
-        <div className='h-5 w-20 bg-gray-200 dark:bg-gray-700 rounded mb-3' />
+        <div className='mb-3 h-5 w-20 rounded bg-gray-200 dark:bg-gray-700' />
         <div className='flex gap-4'>
           {[1, 2, 3, 4, 5].map((i) => (
-            <div key={i} className='flex flex-col items-center w-20'>
-              <div className='w-16 h-16 bg-gray-200 dark:bg-gray-700 rounded-full' />
-              <div className='h-3 w-12 bg-gray-200 dark:bg-gray-700 rounded mt-2' />
+            <div key={i} className='flex w-20 flex-col items-center'>
+              <div className='h-16 w-16 rounded-full bg-gray-200 dark:bg-gray-700' />
+              <div className='mt-2 h-3 w-12 rounded bg-gray-200 dark:bg-gray-700' />
             </div>
           ))}
         </div>
       </div>
 
-      {/* 简介骨架 */}
       <div>
-        <div className='h-5 w-20 bg-gray-200 dark:bg-gray-700 rounded mb-3' />
+        <div className='mb-3 h-5 w-20 rounded bg-gray-200 dark:bg-gray-700' />
         <div className='space-y-2'>
-          <div className='h-4 w-full bg-gray-200 dark:bg-gray-700 rounded' />
-          <div className='h-4 w-full bg-gray-200 dark:bg-gray-700 rounded' />
-          <div className='h-4 w-3/4 bg-gray-200 dark:bg-gray-700 rounded' />
+          <div className='h-4 w-full rounded bg-gray-200 dark:bg-gray-700' />
+          <div className='h-4 w-full rounded bg-gray-200 dark:bg-gray-700' />
+          <div className='h-4 w-3/4 rounded bg-gray-200 dark:bg-gray-700' />
         </div>
       </div>
     </div>
   );
 });
 
-// ============================================================================
-// Main Component
-// ============================================================================
-
-/**
- * 电影元信息组件
- * 包含标签、演员阵容、剧情简介
- */
 function MovieMetaInfoComponent({
   detail,
   loading = false,
   showCast = true,
   showSummary = true,
   showTags = true,
+  primarySummaryLabel = '豆瓣简介',
+  secondarySummary,
+  secondarySummaryLabel = 'TMDB 简介',
+  secondarySummaryLoading = false,
 }: MovieMetaInfoProps) {
   if (loading) {
     return <Skeleton />;
@@ -304,23 +350,28 @@ function MovieMetaInfoComponent({
 
   return (
     <div className='space-y-6'>
-      {/* 元数据标签 */}
-      {showTags && (
+      {showTags ? (
         <MetaTags
           genres={detail.genres}
           countries={detail.countries}
           year={detail.year}
           durations={detail.durations}
         />
-      )}
+      ) : null}
 
-      {/* 演员阵容 */}
-      {showCast && (
+      {showCast ? (
         <CastSlider directors={detail.directors} casts={detail.casts} />
-      )}
+      ) : null}
 
-      {/* 剧情简介 */}
-      {showSummary && <Summary summary={detail.summary} />}
+      {showSummary ? (
+        <Summary
+          summary={detail.summary}
+          primarySummaryLabel={primarySummaryLabel}
+          secondarySummary={secondarySummary}
+          secondarySummaryLabel={secondarySummaryLabel}
+          secondarySummaryLoading={secondarySummaryLoading}
+        />
+      ) : null}
     </div>
   );
 }

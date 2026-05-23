@@ -26,6 +26,14 @@ export interface ImportExportModalProps {
   ) => Promise<ImportResult>;
   onExport?: (format?: 'array' | 'config') => void;
   result?: ImportResult;
+  entityName?: string;
+  arrayFormatLabel?: string;
+  arrayFormatDescription?: string;
+  configFormatLabel?: string;
+  configFormatDescription?: string;
+  configFormatExample?: string;
+  arrayFilenameHint?: string;
+  configFilenameHint?: string;
 }
 
 export default function ImportExportModal({
@@ -35,6 +43,14 @@ export default function ImportExportModal({
   onImport,
   onExport,
   result,
+  entityName = '视频源',
+  arrayFormatLabel = '数组格式 (推荐)',
+  arrayFormatDescription = '用于"视频源配置"卡片的导入功能,支持批量导入视频源',
+  configFormatLabel = '配置文件格式',
+  configFormatDescription = '用于"配置文件"卡片,可直接粘贴到配置文件编辑器中',
+  configFormatExample = '{"api_site": {...}}',
+  arrayFilenameHint = 'video_sources_YYYYMMDD_HHMMSS.json',
+  configFilenameHint = 'config_YYYYMMDD_HHMMSS.json',
 }: ImportExportModalProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -119,9 +135,9 @@ export default function ImportExportModal({
               <div>
                 <h2 className='text-lg font-bold text-white'>
                   {mode === 'import'
-                    ? '导入视频源'
+                    ? `导入${entityName}`
                     : mode === 'export'
-                      ? '导出视频源'
+                      ? `导出${entityName}`
                       : '导入结果'}
                 </h2>
                 <p className='text-white/80 text-xs mt-0.5'>
@@ -235,7 +251,7 @@ export default function ImportExportModal({
                   📝 导入说明
                 </h4>
                 <ul className='text-xs text-blue-800 dark:text-blue-300 space-y-0.5'>
-                  <li>• 支持标准 JSON 格式的视频源配置文件</li>
+                  <li>• 支持标准 JSON 格式的{entityName}配置文件</li>
                   <li>• 重复的 key 将被跳过，不会覆盖现有配置</li>
                   <li>• 导入完成后会显示详细的导入结果</li>
                   <li>• 建议先导出备份，再进行导入操作</li>
@@ -265,10 +281,10 @@ export default function ImportExportModal({
                     />
                     <div className='flex-1'>
                       <div className='font-medium text-gray-900 dark:text-gray-100 text-sm group-hover:text-green-600 dark:group-hover:text-green-400 transition-colors'>
-                        数组格式 (推荐)
+                        {arrayFormatLabel}
                       </div>
                       <div className='text-xs text-gray-600 dark:text-gray-400 mt-0.5'>
-                        用于"视频源配置"卡片的导入功能,支持批量导入视频源
+                        {arrayFormatDescription}
                       </div>
                     </div>
                   </label>
@@ -285,10 +301,10 @@ export default function ImportExportModal({
                     />
                     <div className='flex-1'>
                       <div className='font-medium text-gray-900 dark:text-gray-100 text-sm group-hover:text-green-600 dark:group-hover:text-green-400 transition-colors'>
-                        配置文件格式
+                        {configFormatLabel}
                       </div>
                       <div className='text-xs text-gray-600 dark:text-gray-400 mt-0.5'>
-                        用于"配置文件"卡片,可直接粘贴到配置文件编辑器中
+                        {configFormatDescription}
                       </div>
                     </div>
                   </label>
@@ -303,7 +319,7 @@ export default function ImportExportModal({
                   准备导出
                 </h3>
                 <p className='text-sm text-gray-600 dark:text-gray-400'>
-                  点击下方按钮开始导出视频源配置
+                  点击下方按钮开始导出{entityName}配置
                 </p>
               </div>
 
@@ -315,16 +331,16 @@ export default function ImportExportModal({
                   <li>
                     • 文件名：
                     {exportFormat === 'array'
-                      ? 'video_sources_YYYYMMDD_HHMMSS.json'
-                      : 'config_YYYYMMDD_HHMMSS.json'}
+                      ? arrayFilenameHint
+                      : configFilenameHint}
                   </li>
                   <li>
                     • 格式：
                     {exportFormat === 'array'
                       ? '数组格式 [{"name": "...", ...}]'
-                      : '配置文件格式 {"api_site": {...}}'}
+                      : `配置文件格式 ${configFormatExample}`}
                   </li>
-                  <li>• 包含所有视频源的完整配置信息</li>
+                  <li>• 包含所有{entityName}的完整配置信息</li>
                   <li>• 可用于备份或迁移到其他设备</li>
                 </ul>
               </div>

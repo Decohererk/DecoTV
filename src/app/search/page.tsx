@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/exhaustive-deps, @typescript-eslint/no-explicit-any,@typescript-eslint/no-non-null-assertion,no-empty,no-console */
 'use client';
 
-import { ChevronUp, Search, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronUp, Search, X } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import React, {
   Suspense,
@@ -39,6 +39,10 @@ type SafeSearchState = {
   completedSources: number;
 };
 
+type SearchResultLoadMode = 'infinite' | 'pagination';
+
+const SEARCH_RESULT_PAGE_SIZE = 48;
+
 function isValidSearchResult(item: unknown): item is SearchResult {
   if (!item || typeof item !== 'object') return false;
   const record = item as Partial<SearchResult>;
@@ -74,6 +78,70 @@ function createSafeSearchState(
   };
 }
 
+function SearchResultPagination({
+  currentPage,
+  totalPages,
+  onPageChange,
+}: {
+  currentPage: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+}) {
+  if (totalPages <= 1) return null;
+
+  return (
+    <nav
+      aria-label='搜索结果分页'
+      className='mt-10 flex flex-wrap items-center justify-center gap-3'
+    >
+      <button
+        type='button'
+        disabled={currentPage <= 1}
+        onClick={() => onPageChange(currentPage - 1)}
+        className='inline-flex h-9 items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700'
+      >
+        <ChevronLeft className='h-4 w-4' />
+        上一页
+      </button>
+      <span className='text-sm text-gray-500 dark:text-gray-400'>
+        第 {currentPage} / {totalPages} 页
+      </span>
+      <button
+        type='button'
+        disabled={currentPage >= totalPages}
+        onClick={() => onPageChange(currentPage + 1)}
+        className='inline-flex h-9 items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700'
+      >
+        下一页
+        <ChevronRight className='h-4 w-4' />
+      </button>
+    </nav>
+  );
+}
+
+const SearchResultLoadMoreSentinel = React.forwardRef<
+  HTMLDivElement,
+  { hasMore: boolean }
+>(({ hasMore }, ref) => {
+  if (!hasMore) return null;
+
+  return (
+    <div
+      ref={ref}
+      className='mt-8 flex min-h-12 items-center justify-center gap-2 text-sm text-gray-500 dark:text-gray-400'
+      aria-live='polite'
+    >
+      <span
+        className='inline-block h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-green-500'
+        aria-hidden='true'
+      />
+      下滑加载更多
+    </div>
+  );
+});
+
+SearchResultLoadMoreSentinel.displayName = 'SearchResultLoadMoreSentinel';
+
 function SearchPageClient() {
   // 搜索历史
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
@@ -98,6 +166,14 @@ function SearchPageClient() {
   const flushTimerRef = useRef<number | null>(null);
   const backToTopRafRef = useRef<number | null>(null);
   const [useFluidSearch, setUseFluidSearch] = useState(true);
+  const [resultLoadMode, setResultLoadMode] =
+    useState<SearchResultLoadMode>('infinite');
+  const [visibleResultCount, setVisibleResultCount] = useState(
+    SEARCH_RESULT_PAGE_SIZE,
+  );
+  const [currentResultPage, setCurrentResultPage] = useState(1);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const resultsSectionRef = useRef<HTMLElement | null>(null);
   // 聚合卡片 refs 与聚合统计缓存
   const groupRefs = useRef<
     Map<string, React.RefObject<VideoCardHandle | null>>
@@ -562,6 +638,140 @@ function SearchPageClient() {
     }
   }, [aggregatedResults, filterAgg, searchQuery]);
 
+  const displayedResultCount = useMemo(() => {
+    if (viewMode === 'agg') {
+      return Array.isArray(filteredAggResults) ? filteredAggResults.length : 0;
+    }
+
+    return Array.isArray(filteredAllResults) ? filteredAllResults.length : 0;
+  }, [filteredAggResults, filteredAllResults, viewMode]);
+
+  const totalResultPages = useMemo(
+    () =>
+      Math.max(1, Math.ceil(displayedResultCount / SEARCH_RESULT_PAGE_SIZE)),
+    [displayedResultCount],
+  );
+
+  const safeCurrentResultPage = Math.min(
+    Math.max(currentResultPage, 1),
+    totalResultPages,
+  );
+
+  const visibleAllResults = useMemo(() => {
+    const safeResults = Array.isArray(filteredAllResults)
+      ? filteredAllResults
+      : [];
+
+    if (resultLoadMode === 'pagination') {
+      const start = (safeCurrentResultPage - 1) * SEARCH_RESULT_PAGE_SIZE;
+      return safeResults.slice(start, start + SEARCH_RESULT_PAGE_SIZE);
+    }
+
+    return safeResults.slice(0, visibleResultCount);
+  }, [
+    filteredAllResults,
+    resultLoadMode,
+    safeCurrentResultPage,
+    visibleResultCount,
+  ]);
+
+  const visibleAggResults = useMemo(() => {
+    const safeResults = Array.isArray(filteredAggResults)
+      ? filteredAggResults
+      : [];
+
+    if (resultLoadMode === 'pagination') {
+      const start = (safeCurrentResultPage - 1) * SEARCH_RESULT_PAGE_SIZE;
+      return safeResults.slice(start, start + SEARCH_RESULT_PAGE_SIZE);
+    }
+
+    return safeResults.slice(0, visibleResultCount);
+  }, [
+    filteredAggResults,
+    resultLoadMode,
+    safeCurrentResultPage,
+    visibleResultCount,
+  ]);
+
+  const visibleDisplayedResultCount = useMemo(() => {
+    return viewMode === 'agg'
+      ? visibleAggResults.length
+      : visibleAllResults.length;
+  }, [viewMode, visibleAggResults.length, visibleAllResults.length]);
+
+  const hasMoreDisplayResults =
+    resultLoadMode === 'infinite' &&
+    visibleDisplayedResultCount < displayedResultCount;
+
+  useEffect(() => {
+    setCurrentResultPage((previous) =>
+      Math.min(Math.max(previous, 1), totalResultPages),
+    );
+  }, [totalResultPages]);
+
+  useEffect(() => {
+    setVisibleResultCount(SEARCH_RESULT_PAGE_SIZE);
+    setCurrentResultPage(1);
+  }, [
+    viewMode,
+    filterAll.source,
+    filterAll.title,
+    filterAll.year,
+    filterAll.yearOrder,
+    filterAgg.source,
+    filterAgg.title,
+    filterAgg.year,
+    filterAgg.yearOrder,
+    resultLoadMode,
+  ]);
+
+  const loadMoreSearchResults = useCallback(() => {
+    if (resultLoadMode !== 'infinite') return;
+
+    setVisibleResultCount((previous) => {
+      if (previous >= displayedResultCount) {
+        return previous;
+      }
+
+      return Math.min(previous + SEARCH_RESULT_PAGE_SIZE, displayedResultCount);
+    });
+  }, [displayedResultCount, resultLoadMode]);
+
+  useEffect(() => {
+    if (resultLoadMode !== 'infinite' || !hasMoreDisplayResults) return;
+    const node = loadMoreRef.current;
+    if (!node) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          loadMoreSearchResults();
+        }
+      },
+      { root: null, rootMargin: '520px 0px', threshold: 0 },
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasMoreDisplayResults, loadMoreSearchResults, resultLoadMode]);
+
+  const scrollResultsIntoView = useCallback(() => {
+    resultsSectionRef.current?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    });
+  }, []);
+
+  const goToResultPage = useCallback(
+    (page: number) => {
+      setCurrentResultPage(
+        Math.min(Math.max(Math.round(page), 1), totalResultPages),
+      );
+      scrollResultsIntoView();
+    },
+    [scrollResultsIntoView, totalResultPages],
+  );
+
   useEffect(() => {
     // 无搜索参数时聚焦搜索框
     !searchParams.get('q') && document.getElementById('searchInput')?.focus();
@@ -586,6 +796,12 @@ function SearchPageClient() {
       } else if (defaultFluidSearch !== undefined) {
         setUseFluidSearch(defaultFluidSearch);
       }
+
+      setResultLoadMode(
+        (window as any).RUNTIME_CONFIG?.SEARCH_RESULT_LOAD_MODE === 'pagination'
+          ? 'pagination'
+          : 'infinite',
+      );
     }
 
     // 监听搜索历史更新事件
@@ -633,6 +849,16 @@ function SearchPageClient() {
     currentQueryRef.current = trimmed;
     groupRefs.current.clear();
     groupStatsRef.current.clear();
+    setVisibleResultCount(SEARCH_RESULT_PAGE_SIZE);
+    setCurrentResultPage(1);
+
+    if (typeof window !== 'undefined') {
+      setResultLoadMode(
+        (window as any).RUNTIME_CONFIG?.SEARCH_RESULT_LOAD_MODE === 'pagination'
+          ? 'pagination'
+          : 'infinite',
+      );
+    }
 
     const clearSearchConnection = () => {
       if (eventSourceRef.current) {
@@ -687,6 +913,50 @@ function SearchPageClient() {
     if (currentFluidSearch !== useFluidSearch) {
       setUseFluidSearch(currentFluidSearch);
     }
+
+    const fetchCanonicalSearchResults = async (
+      completedSourceCount: number,
+    ): Promise<boolean> => {
+      try {
+        const response = await fetch(
+          '/api/search?q=' + encodeURIComponent(trimmed),
+        );
+        if (!response.ok) {
+          throw new Error(
+            'search request failed with status ' + response.status,
+          );
+        }
+
+        const payload = (await response.json()) as Record<string, unknown>;
+        if (currentQueryRef.current !== trimmed) {
+          return false;
+        }
+
+        applySafeSearchState(
+          createSafeSearchState({
+            data: sanitizeSearchResults(payload.results),
+            normalizedQuery:
+              typeof payload.normalizedQuery === 'string'
+                ? payload.normalizedQuery
+                : '',
+            isLoading: false,
+            hasError: false,
+            totalSources:
+              totalSources > 0
+                ? totalSources
+                : Math.max(completedSourceCount, 1),
+            completedSources:
+              totalSources > 0
+                ? totalSources
+                : Math.max(completedSourceCount, 1),
+          }),
+        );
+        return true;
+      } catch (error) {
+        console.error('canonical search request failed:', error);
+        return false;
+      }
+    };
 
     const markSearchFailed = () => {
       flushPendingResults();
@@ -754,15 +1024,25 @@ function SearchPageClient() {
                 setCompletedSources((previous) => previous + 1);
                 break;
               case 'complete':
-                setCompletedSources(
-                  typeof payload.completedSources === 'number' &&
+                {
+                  const completedSourceCount =
+                    typeof payload.completedSources === 'number' &&
                     Number.isFinite(payload.completedSources)
-                    ? payload.completedSources
-                    : totalSources,
-                );
-                flushPendingResults();
-                setIsLoading(false);
-                setHasSearchError(false);
+                      ? payload.completedSources
+                      : totalSources;
+
+                  setCompletedSources(completedSourceCount);
+                  flushPendingResults();
+
+                  void (async () => {
+                    const synced =
+                      await fetchCanonicalSearchResults(completedSourceCount);
+                    if (!synced && currentQueryRef.current === trimmed) {
+                      setIsLoading(false);
+                      setHasSearchError(false);
+                    }
+                  })();
+                }
                 try {
                   es.close();
                 } catch {}
@@ -991,11 +1271,19 @@ function SearchPageClient() {
         {/* 搜索结果或搜索历史 */}
         <div className='max-w-[95%] mx-auto mt-12 overflow-visible'>
           {showResults ? (
-            <section className='mb-12'>
+            <section ref={resultsSectionRef} className='mb-12'>
               {/* 标题 */}
               <div className='mb-4'>
                 <h2 className='text-xl font-bold text-gray-800 dark:text-gray-200'>
                   搜索结果
+                  <span className='ml-2 text-sm font-normal text-gray-500 dark:text-gray-400'>
+                    {viewMode === 'agg'
+                      ? `当前展示 ${visibleDisplayedResultCount}/${displayedResultCount} 组 / 原始 ${searchResults.length} 条`
+                      : `当前展示 ${visibleDisplayedResultCount}/${displayedResultCount} 条 / 原始 ${searchResults.length} 条`}
+                  </span>
+                  <span className='ml-2 text-xs font-normal text-gray-400 dark:text-gray-500'>
+                    {resultLoadMode === 'pagination' ? '分页显示' : '触底加载'}
+                  </span>
                   {totalSources > 0 && useFluidSearch && (
                     <span className='ml-2 text-sm font-normal text-gray-500 dark:text-gray-400'>
                       {completedSources}/{totalSources}
@@ -1077,90 +1365,125 @@ function SearchPageClient() {
                 >
                   {viewMode === 'agg' ? (
                     Array.isArray(filteredAggResults) ? (
-                      <VirtualizedVideoGrid
-                        mode='auto'
-                        data={filteredAggResults}
-                        virtualizationThreshold={240}
-                        overscan={640}
-                        className='justify-start grid grid-cols-3 gap-x-2 gap-y-14 sm:gap-y-20 px-0 sm:px-2 sm:grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] sm:gap-x-8'
-                        itemKey={([mapKey]) => `agg-${mapKey}`}
-                        renderItem={([mapKey, group]) => {
-                          const safeGroup =
-                            Array.isArray(group) && group.length > 0
-                              ? group
-                              : [];
-                          if (safeGroup.length === 0) return null;
-                          const title = safeGroup[0]?.title || '';
-                          const poster = safeGroup[0]?.poster || '';
-                          const year = safeGroup[0]?.year || 'unknown';
-                          const { episodes, source_names, douban_id } =
-                            computeGroupStats(safeGroup);
-                          const type = episodes === 1 ? 'movie' : 'tv';
+                      <>
+                        <VirtualizedVideoGrid
+                          // The search page currently scrolls with document.body,
+                          // which can break window-scroll virtualization and make
+                          // only the first screenful of cards appear reachable.
+                          // Prefer full rendering here until the scroll container
+                          // is wired to Virtuoso correctly.
+                          mode='never'
+                          data={visibleAggResults}
+                          virtualizationThreshold={240}
+                          overscan={640}
+                          className='justify-start grid grid-cols-3 gap-x-2 gap-y-14 sm:gap-y-20 px-0 sm:px-2 sm:grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] sm:gap-x-8'
+                          itemKey={([mapKey]) => `agg-${mapKey}`}
+                          renderItem={([mapKey, group]) => {
+                            const safeGroup =
+                              Array.isArray(group) && group.length > 0
+                                ? group
+                                : [];
+                            if (safeGroup.length === 0) return null;
+                            const title = safeGroup[0]?.title || '';
+                            const poster = safeGroup[0]?.poster || '';
+                            const year = safeGroup[0]?.year || 'unknown';
+                            const { episodes, source_names, douban_id } =
+                              computeGroupStats(safeGroup);
+                            const type = episodes === 1 ? 'movie' : 'tv';
 
-                          if (!groupStatsRef.current.has(mapKey)) {
-                            groupStatsRef.current.set(mapKey, {
-                              episodes,
-                              source_names,
-                              douban_id,
-                            });
-                          }
+                            if (!groupStatsRef.current.has(mapKey)) {
+                              groupStatsRef.current.set(mapKey, {
+                                episodes,
+                                source_names,
+                                douban_id,
+                              });
+                            }
 
-                          return (
-                            <VideoCard
-                              ref={getGroupRef(mapKey)}
-                              from='search'
-                              isAggregate={true}
-                              title={title}
-                              poster={poster}
-                              year={year}
-                              episodes={episodes}
-                              source_names={source_names}
-                              douban_id={douban_id}
-                              query={
-                                searchQuery.trim() !== title
-                                  ? searchQuery.trim()
-                                  : ''
-                              }
-                              type={type}
-                            />
-                          );
-                        }}
-                      />
+                            return (
+                              <VideoCard
+                                ref={getGroupRef(mapKey)}
+                                from='search'
+                                isAggregate={true}
+                                title={title}
+                                poster={poster}
+                                year={year}
+                                episodes={episodes}
+                                source_names={source_names}
+                                douban_id={douban_id}
+                                query={
+                                  searchQuery.trim() !== title
+                                    ? searchQuery.trim()
+                                    : ''
+                                }
+                                type={type}
+                              />
+                            );
+                          }}
+                        />
+                        {resultLoadMode === 'pagination' ? (
+                          <SearchResultPagination
+                            currentPage={safeCurrentResultPage}
+                            totalPages={totalResultPages}
+                            onPageChange={goToResultPage}
+                          />
+                        ) : (
+                          <SearchResultLoadMoreSentinel
+                            ref={loadMoreRef}
+                            hasMore={hasMoreDisplayResults}
+                          />
+                        )}
+                      </>
                     ) : (
                       <div className='text-center text-rose-500 py-8 dark:text-rose-300'>
                         加载失败，请重试
                       </div>
                     )
                   ) : Array.isArray(filteredAllResults) ? (
-                    <VirtualizedVideoGrid
-                      mode='auto'
-                      data={filteredAllResults}
-                      virtualizationThreshold={240}
-                      overscan={640}
-                      className='justify-start grid grid-cols-3 gap-x-2 gap-y-14 sm:gap-y-20 px-0 sm:px-2 sm:grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] sm:gap-x-8'
-                      itemKey={(item) => `all-${item.source}-${item.id}`}
-                      renderItem={(item) => (
-                        <VideoCard
-                          id={item.id}
-                          title={item.title}
-                          poster={item.poster}
-                          episodes={item.episodes?.length ?? 0}
-                          source={item.source}
-                          source_name={item.source_name}
-                          douban_id={item.douban_id}
-                          query={
-                            searchQuery.trim() !== item.title
-                              ? searchQuery.trim()
-                              : ''
-                          }
-                          year={item.year}
-                          from='search'
-                          type={
-                            (item.episodes?.length ?? 0) > 1 ? 'tv' : 'movie'
-                          }
+                    <>
+                      <VirtualizedVideoGrid
+                        // See the aggregate grid note above. Disable virtualization
+                        // on the search page so all matched results remain reachable.
+                        mode='never'
+                        data={visibleAllResults}
+                        virtualizationThreshold={240}
+                        overscan={640}
+                        className='justify-start grid grid-cols-3 gap-x-2 gap-y-14 sm:gap-y-20 px-0 sm:px-2 sm:grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] sm:gap-x-8'
+                        itemKey={(item) => `all-${item.source}-${item.id}`}
+                        renderItem={(item) => (
+                          <VideoCard
+                            id={item.id}
+                            title={item.title}
+                            poster={item.poster}
+                            episodes={item.episodes?.length ?? 0}
+                            source={item.source}
+                            source_name={item.source_name}
+                            douban_id={item.douban_id}
+                            query={
+                              searchQuery.trim() !== item.title
+                                ? searchQuery.trim()
+                                : ''
+                            }
+                            year={item.year}
+                            from='search'
+                            type={
+                              (item.episodes?.length ?? 0) > 1 ? 'tv' : 'movie'
+                            }
+                          />
+                        )}
+                      />
+                      {resultLoadMode === 'pagination' ? (
+                        <SearchResultPagination
+                          currentPage={safeCurrentResultPage}
+                          totalPages={totalResultPages}
+                          onPageChange={goToResultPage}
+                        />
+                      ) : (
+                        <SearchResultLoadMoreSentinel
+                          ref={loadMoreRef}
+                          hasMore={hasMoreDisplayResults}
                         />
                       )}
-                    />
+                    </>
                   ) : (
                     <div className='text-center text-rose-500 py-8 dark:text-rose-300'>
                       加载失败，请重试

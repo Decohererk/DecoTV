@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface ScrollableRowProps {
   children: React.ReactNode;
@@ -14,80 +14,82 @@ export default function ScrollableRow({
   const [showLeftScroll, setShowLeftScroll] = useState(false);
   const [showRightScroll, setShowRightScroll] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
+  const showLeftScrollRef = useRef(false);
+  const showRightScrollRef = useRef(false);
+  const rafRef = useRef<number | null>(null);
 
-  const checkScroll = () => {
-    if (containerRef.current) {
-      const { scrollWidth, clientWidth, scrollLeft } = containerRef.current;
+  const checkScroll = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
 
-      // 计算是否需要左右滚动按钮
-      const threshold = 1; // 容差值，避免浮点误差
-      const canScrollRight =
-        scrollWidth - (scrollLeft + clientWidth) > threshold;
-      const canScrollLeft = scrollLeft > threshold;
+    const { scrollWidth, clientWidth, scrollLeft } = container;
+    const threshold = 1;
+    const canScrollRight = scrollWidth - (scrollLeft + clientWidth) > threshold;
+    const canScrollLeft = scrollLeft > threshold;
 
+    if (showRightScrollRef.current !== canScrollRight) {
+      showRightScrollRef.current = canScrollRight;
       setShowRightScroll(canScrollRight);
+    }
+
+    if (showLeftScrollRef.current !== canScrollLeft) {
+      showLeftScrollRef.current = canScrollLeft;
       setShowLeftScroll(canScrollLeft);
-    }
-  };
-
-  useEffect(() => {
-    // 多次延迟检查，确保内容已完全渲染
-    checkScroll();
-
-    // 监听窗口大小变化
-    window.addEventListener('resize', checkScroll);
-
-    // 创建一个 ResizeObserver 来监听容器大小变化
-    const resizeObserver = new ResizeObserver(() => {
-      // 延迟执行检查
-      checkScroll();
-    });
-
-    if (containerRef.current) {
-      resizeObserver.observe(containerRef.current);
-    }
-
-    return () => {
-      window.removeEventListener('resize', checkScroll);
-      resizeObserver.disconnect();
-    };
-  }, [children]); // 依赖 children，当子组件变化时重新检查
-
-  // 添加一个额外的效果来监听子组件的变化
-  useEffect(() => {
-    if (containerRef.current) {
-      // 监听 DOM 变化
-      const observer = new MutationObserver(() => {
-        setTimeout(checkScroll, 100);
-      });
-
-      observer.observe(containerRef.current, {
-        childList: true,
-        subtree: true,
-        attributes: true,
-        attributeFilter: ['style', 'class'],
-      });
-
-      return () => observer.disconnect();
     }
   }, []);
 
-  const handleScrollRightClick = () => {
-    if (containerRef.current) {
-      containerRef.current.scrollBy({
-        left: scrollDistance,
-        behavior: 'smooth',
-      });
+  const scheduleCheckScroll = useCallback(() => {
+    if (rafRef.current !== null) return;
+
+    rafRef.current = window.requestAnimationFrame(() => {
+      rafRef.current = null;
+      checkScroll();
+    });
+  }, [checkScroll]);
+
+  useEffect(() => {
+    checkScroll();
+
+    window.addEventListener('resize', scheduleCheckScroll);
+    const resizeObserver = new ResizeObserver(scheduleCheckScroll);
+
+    const container = containerRef.current;
+    if (container) {
+      resizeObserver.observe(container);
     }
+
+    return () => {
+      window.removeEventListener('resize', scheduleCheckScroll);
+      resizeObserver.disconnect();
+      if (rafRef.current !== null) {
+        window.cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+    };
+  }, [children, checkScroll, scheduleCheckScroll]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const observer = new MutationObserver(scheduleCheckScroll);
+    observer.observe(container, { childList: true });
+
+    return () => observer.disconnect();
+  }, [scheduleCheckScroll]);
+
+  const handleScrollRightClick = () => {
+    containerRef.current?.scrollBy({
+      left: scrollDistance,
+      behavior: 'smooth',
+    });
   };
 
   const handleScrollLeftClick = () => {
-    if (containerRef.current) {
-      containerRef.current.scrollBy({
-        left: -scrollDistance,
-        behavior: 'smooth',
-      });
-    }
+    containerRef.current?.scrollBy({
+      left: -scrollDistance,
+      behavior: 'smooth',
+    });
   };
 
   return (
@@ -95,7 +97,6 @@ export default function ScrollableRow({
       className='relative'
       onMouseEnter={() => {
         setIsHovered(true);
-        // 当鼠标进入时重新检查一次
         checkScroll();
       }}
       onMouseLeave={() => setIsHovered(false)}
@@ -103,7 +104,7 @@ export default function ScrollableRow({
       <div
         ref={containerRef}
         className='flex space-x-6 overflow-x-auto scrollbar-hide py-1 sm:py-2 pb-12 sm:pb-14 px-4 sm:px-6'
-        onScroll={checkScroll}
+        onScroll={scheduleCheckScroll}
       >
         {children}
       </div>
@@ -114,7 +115,7 @@ export default function ScrollableRow({
           }`}
           style={{
             background: 'transparent',
-            pointerEvents: 'none', // 允许点击穿透
+            pointerEvents: 'none',
           }}
         >
           <div
@@ -143,7 +144,7 @@ export default function ScrollableRow({
           }`}
           style={{
             background: 'transparent',
-            pointerEvents: 'none', // 允许点击穿透
+            pointerEvents: 'none',
           }}
         >
           <div

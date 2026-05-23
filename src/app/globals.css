@@ -1,4 +1,5 @@
 @import 'tailwindcss';
+@import '../styles/artplayer-deco.css';
 
 /* Tailwind 4 Dark Mode Configuration - 使用 class 选择器而非媒体查询 */
 @custom-variant dark (&:where(.dark, .dark *));
@@ -859,6 +860,19 @@ html[data-render-mode='lite'] .bg-animated-gradient::before {
   opacity: 0.45;
 }
 
+html[data-render-mode='lite'] .image-placeholder-shimmer,
+html[data-render-mode='lite'] .animate-pulse {
+  animation: none;
+}
+
+html[data-render-mode='lite'] .video-card-root {
+  box-shadow: none;
+}
+
+html[data-render-mode='lite'] .video-card-root * {
+  transition-duration: 120ms;
+}
+
 html[data-render-mode='lite'] .glass-chip {
   backdrop-filter: none;
 }
@@ -1010,7 +1024,7 @@ div[data-media-provider] video {
   background-color: #000 !important; /* 其余区域填充为黑色 */
 }
 
-/* 隐藏移动端竖屏时的 pip 按钮 */
+/* 移动端：隐藏不需要的控件（pip、网页全屏、音量滑块） */
 @media (max-width: 768px) {
   .art-control-pip {
     display: none !important;
@@ -1023,6 +1037,52 @@ div[data-media-provider] video {
   .art-control-volume {
     display: none !important;
   }
+}
+
+/* 移动端外接鼠标模式下，增强进度预览 tip 的观感 */
+.art-video-player.art-mobile.art-mobile-mouse-tip
+  .art-control-progress
+  .art-progress-tip {
+  border: 1px solid rgb(255 255 255 / 22%);
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  line-height: 1.1;
+  background:
+    linear-gradient(140deg, rgb(15 23 42 / 95%), rgb(30 41 59 / 88%)),
+    rgb(2 6 23 / 92%);
+  box-shadow:
+    0 10px 24px rgb(2 6 23 / 42%),
+    0 2px 6px rgb(2 6 23 / 24%);
+  backdrop-filter: blur(6px);
+  opacity: 0;
+  transform: translateY(6px) scale(0.96);
+  transform-origin: center bottom;
+  transition:
+    opacity 130ms ease-out,
+    transform 130ms ease-out;
+}
+
+.art-video-player.art-mobile.art-mobile-mouse-tip
+  .art-control-progress
+  .art-progress-tip.art-mobile-mouse-tip-visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+/* 鼠标拖动期间保持桌面端同款“展开进度条 + 显示拖拽点”反馈 */
+.art-video-player.art-mobile.art-mobile-mouse-seeking
+  .art-control-progress
+  .art-control-progress-inner {
+  height: 100%;
+}
+
+.art-video-player.art-mobile.art-mobile-mouse-seeking
+  .art-control-progress
+  .art-progress-indicator {
+  transform: scale(1);
 }
 
 /* DecoTV 炫酷动画效果 */

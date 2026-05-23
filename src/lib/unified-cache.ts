@@ -66,6 +66,14 @@ class MemoryCache {
     this.store.delete(key);
   }
 
+  deleteByPrefix(prefix: string): void {
+    Array.from(this.store.keys()).forEach((key) => {
+      if (key.startsWith(prefix)) {
+        this.store.delete(key);
+      }
+    });
+  }
+
   clear(): void {
     this.store.clear();
   }
@@ -137,6 +145,20 @@ class LocalStorageCache {
   delete(key: string): void {
     if (typeof localStorage === 'undefined') return;
     localStorage.removeItem(this.getFullKey(key));
+  }
+
+  deleteByPrefix(prefix: string): void {
+    if (typeof localStorage === 'undefined') return;
+
+    const keysToDelete: string[] = [];
+    const fullPrefix = this.getFullKey(prefix);
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(fullPrefix)) {
+        keysToDelete.push(key);
+      }
+    }
+    keysToDelete.forEach((key) => localStorage.removeItem(key));
   }
 
   cleanExpired(): number {
@@ -243,6 +265,11 @@ export class UnifiedCache {
   delete(key: string): void {
     this.memoryCache.delete(key);
     this.localStorageCache.delete(key);
+  }
+
+  deleteByPrefix(prefix: string): void {
+    this.memoryCache.deleteByPrefix(prefix);
+    this.localStorageCache.deleteByPrefix(prefix);
   }
 
   cleanExpired(): void {

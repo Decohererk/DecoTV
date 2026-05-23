@@ -1,0 +1,503 @@
+/* ================================================================
+   DecoDock — ArtPlayer control bar theme
+   Scoped to .art-video-player to avoid polluting other pages.
+
+   IMPORTANT: .art-bottom is position:absolute; inset:0 (covers the
+   entire player). ArtPlayer uses background-size:100% 100px with
+   background-position:bottom to make its gradient only visible at
+   the bottom. We must NOT set a solid background on .art-bottom —
+   instead we style .art-controls (the actual button row) and
+   .art-progress (the progress bar) directly.
+   ================================================================ */
+
+/* --- Design tokens ------------------------------------------------ */
+:root {
+  --deco-dock-bg: rgba(8, 10, 16, 0.7);
+  --deco-dock-border: rgba(255, 255, 255, 0.12);
+  --deco-dock-radius: 16px;
+  --deco-accent: #06b6d4;
+}
+
+/* --- .art-bottom: clear default gradient, keep layout intact ------- */
+.art-video-player .art-bottom {
+  background-image: none !important;
+  background-color: transparent !important;
+  background-size: auto !important;
+  background-position: 0 0 !important;
+  padding: 0 12px;
+}
+
+/* --- Floating capsule dock (.art-controls) ------------------------- */
+.art-video-player .art-controls {
+  background: var(--deco-dock-bg) !important;
+  border: 1px solid var(--deco-dock-border);
+  border-radius: var(--deco-dock-radius);
+  margin: 0 0 12px;
+  padding: 4px 8px;
+  box-sizing: border-box;
+  overflow: visible;
+  scrollbar-width: none;
+  flex-wrap: nowrap;
+}
+
+.art-video-player .art-controls::-webkit-scrollbar {
+  display: none;
+}
+
+.art-video-player .art-controls-left,
+.art-video-player .art-controls-right {
+  flex-shrink: 0;
+}
+
+.art-video-player .art-controls [class^='art-control-'] {
+  flex-shrink: 0;
+  border-radius: 8px;
+}
+
+/* --- Progress track ------------------------------------------------ */
+
+.art-video-player .art-control-progress {
+  margin: 0 0 var(--art-bottom-gap);
+}
+
+.art-video-player .art-control-progress .art-control-progress-inner {
+  background: rgba(255, 255, 255, 0.12) !important;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.art-video-player .art-progress-loaded {
+  background: rgba(255, 255, 255, 0.18) !important;
+}
+
+.art-video-player .art-progress-played {
+  background: var(--deco-accent) !important;
+  border-radius: 999px;
+}
+
+.art-video-player .art-control-progress:hover .art-control-progress-inner {
+  height: 6px !important;
+}
+
+/* --- Danmaku input ------------------------------------------------- */
+
+.art-video-player .art-danmuku {
+  padding: 4px 8px;
+  gap: 6px;
+}
+
+.art-video-player .art-danmuku-send-input,
+.art-video-player .deco-danmaku-input {
+  border-radius: 999px !important;
+  background: rgba(8, 10, 16, 0.65) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  color: #fff !important;
+  padding: 6px 16px !important;
+  font-size: 13px !important;
+  outline: none;
+}
+
+.art-video-player .art-danmuku-send-input::placeholder,
+.art-video-player .deco-danmaku-input::placeholder {
+  color: rgba(255, 255, 255, 0.4) !important;
+}
+
+.art-video-player .art-danmuku-send-input:focus,
+.art-video-player .deco-danmaku-input:focus {
+  border-color: var(--deco-accent) !important;
+}
+
+.art-video-player .art-danmuku-send {
+  background: var(--deco-accent) !important;
+  border: none !important;
+  border-radius: 999px !important;
+  color: #fff !important;
+  font-weight: 600;
+  padding: 6px 14px !important;
+  cursor: pointer;
+}
+
+/* --- Time tooltip ------------------------------------------------- */
+
+.art-video-player .art-progress-tip {
+  background: rgba(15, 23, 42, 0.9) !important;
+  border: 1px solid var(--deco-dock-border) !important;
+  border-radius: 8px !important;
+  color: #fff !important;
+  padding: 4px 10px !important;
+}
+
+/* --- Settings & volume panels ------------------------------------- */
+
+.art-video-player .art-setting-panel,
+.art-video-player .art-volume-panel,
+.art-video-player .art-playback-rate-panel {
+  background: rgba(8, 10, 16, 0.88) !important;
+  border: 1px solid var(--deco-dock-border) !important;
+  border-radius: 12px !important;
+  z-index: 90 !important;
+}
+
+/* --- Fullscreen adjustments --------------------------------------- */
+
+.art-video-player.art-fullscreen .art-controls {
+  margin-bottom: 24px;
+}
+
+.art-video-player.art-fullscreen .art-bottom {
+  padding: 0 24px;
+}
+
+/* ================================================================
+   Responsive Breakpoints
+   ================================================================ */
+
+/* --- Mobile + Tablet (≤1024px) ------------------------------------- */
+
+@media (max-width: 1024px) {
+  .art-video-player .art-bottom {
+    padding: 0 8px;
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+
+  .art-video-player .art-controls {
+    --deco-dock-radius: 10px;
+    padding: 3px 6px;
+    margin: 0 0 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .art-video-player .art-controls [class^='art-control-'] {
+    min-width: 40px;
+    min-height: 40px;
+    padding: 0 6px;
+  }
+
+  .art-video-player .art-controls-right .art-control-deco-shortcuts-btn {
+    display: none !important;
+  }
+
+  .art-video-player .art-danmuku-send-input,
+  .art-video-player .deco-danmaku-input {
+    font-size: 14px !important;
+    padding: 7px 14px !important;
+  }
+}
+
+/* --- Small phone (≤480px) ------------------------------------------ */
+
+@media (max-width: 480px) {
+  .art-video-player .art-bottom {
+    padding: 0 6px;
+    padding-bottom: max(6px, env(safe-area-inset-bottom));
+  }
+
+  .art-video-player .art-controls {
+    --deco-dock-radius: 8px;
+    padding: 2px 4px;
+    margin: 0 0 4px;
+  }
+
+  .art-video-player .art-controls [class^='art-control-'] {
+    min-width: 38px;
+    min-height: 38px;
+    padding: 0 5px;
+  }
+
+  .art-video-player .art-control-time {
+    font-size: 11px;
+    padding: 0 4px;
+  }
+
+  .art-video-player .art-danmuku {
+    flex-wrap: wrap;
+  }
+
+  .art-video-player .art-danmuku-send-input,
+  .art-video-player .deco-danmaku-input {
+    font-size: 14px !important;
+    padding: 6px 12px !important;
+    min-width: 0;
+    flex: 1;
+  }
+}
+
+/* --- Touch-device landscape (≤500px height) ------------------------ */
+
+@media (orientation: landscape) and (max-height: 500px) {
+  .art-video-player .art-bottom {
+    padding: 0 10px;
+    padding-bottom: 2px;
+  }
+
+  .art-video-player .art-controls {
+    --deco-dock-radius: 8px;
+    padding: 2px 6px;
+    margin: 0 0 2px;
+  }
+
+  .art-video-player .art-controls [class^='art-control-'] {
+    min-width: 38px;
+    min-height: 36px;
+    padding: 0 5px;
+  }
+
+  .art-video-player .art-control-time {
+    font-size: 11px;
+    padding: 0 4px;
+  }
+
+  .art-video-player .art-controls-right .art-control-deco-shortcuts-btn {
+    display: none !important;
+  }
+}
+
+/* --- Touch landscape fullscreen ----------------------------------- */
+
+@media (orientation: landscape) and (max-height: 500px) {
+  .art-video-player.art-fullscreen .art-controls {
+    margin-bottom: 6px;
+  }
+}
+
+/* ================================================================
+   Feature 1: Next Episode Countdown Capsule
+   ================================================================ */
+
+.art-video-player .deco-capsule {
+  position: absolute;
+  bottom: 80px;
+  right: 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px;
+  background: rgba(8, 10, 16, 0.85);
+  border: 1px solid var(--deco-dock-border);
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 13px;
+  z-index: 50;
+}
+
+.art-video-player .deco-capsule-countdown {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--deco-accent);
+}
+
+.art-video-player .deco-capsule-play {
+  padding: 5px 14px;
+  border-radius: 999px;
+  border: none;
+  background: var(--deco-accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.art-video-player .deco-capsule-cancel {
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--deco-dock-border);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.art-video-player .deco-capsule-cancel:hover {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+/* ================================================================
+   Feature 2: Long-press Speed Boost Indicator
+   ================================================================ */
+
+.art-video-player .deco-speed-boost {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 16px;
+  background: rgba(8, 10, 16, 0.8);
+  border: 1px solid var(--deco-dock-border);
+  border-radius: 999px;
+  color: var(--deco-accent);
+  font-size: 13px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+/* ================================================================
+   Feature 3: Keyboard Shortcuts Overlay
+   ================================================================ */
+
+.art-video-player .deco-shortcuts-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 60;
+}
+
+.art-video-player .deco-shortcuts-modal {
+  background: rgba(8, 10, 16, 0.95);
+  border: 1px solid var(--deco-dock-border);
+  border-radius: 16px;
+  width: min(420px, 90%);
+  max-height: 80%;
+  overflow-y: auto;
+  color: #fff;
+}
+
+.art-video-player .deco-shortcuts-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 12px;
+  font-size: 15px;
+  font-weight: 600;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.art-video-player .deco-shortcuts-close {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.art-video-player .deco-shortcuts-close:hover {
+  color: #fff;
+}
+
+.art-video-player .deco-shortcuts-body {
+  padding: 12px 20px 20px;
+}
+
+.art-video-player .deco-shortcuts-category {
+  margin-bottom: 16px;
+}
+
+.art-video-player .deco-shortcuts-category:last-child {
+  margin-bottom: 0;
+}
+
+.art-video-player .deco-shortcuts-category-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.4);
+  margin-bottom: 8px;
+}
+
+.art-video-player .deco-shortcuts-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+  font-size: 13px;
+}
+
+.art-video-player .deco-shortcuts-row kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  padding: 2px 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.art-video-player .deco-shortcuts-row span {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* --- Mobile: capsule & shortcuts adjustments ---------------------- */
+
+@media (max-width: 480px) {
+  .art-video-player .deco-capsule {
+    right: 8px;
+    bottom: 60px;
+    font-size: 11px;
+    padding: 6px 10px;
+    gap: 6px;
+  }
+
+  .art-video-player .deco-capsule-play,
+  .art-video-player .deco-capsule-cancel {
+    font-size: 11px;
+    padding: 4px 10px;
+  }
+
+  .art-video-player .deco-speed-boost {
+    font-size: 12px;
+    padding: 4px 12px;
+    top: 10px;
+  }
+
+  .art-video-player .deco-shortcuts-modal {
+    width: 96%;
+    max-height: 65%;
+    border-radius: 12px;
+  }
+
+  .art-video-player .deco-shortcuts-header {
+    padding: 12px 16px 10px;
+    font-size: 14px;
+  }
+
+  .art-video-player .deco-shortcuts-body {
+    padding: 10px 16px 16px;
+  }
+
+  .art-video-player .deco-shortcuts-row {
+    padding: 5px 0;
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 768px) {
+  .art-video-player .deco-capsule {
+    right: 12px;
+    bottom: 66px;
+    font-size: 12px;
+    padding: 8px 14px;
+    gap: 8px;
+  }
+
+  .art-video-player .deco-shortcuts-modal {
+    width: 95%;
+    max-height: 70%;
+  }
+}
+
+@media (min-width: 769px) and (max-width: 1024px) {
+  .art-video-player .deco-capsule {
+    right: 18px;
+    bottom: 76px;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 500px) {
+  .art-video-player .deco-capsule {
+    bottom: 54px;
+    right: 10px;
+    font-size: 11px;
+    padding: 6px 12px;
+    gap: 6px;
+  }
+}

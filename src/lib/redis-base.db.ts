@@ -3,7 +3,13 @@
 import { createClient, RedisClientType } from 'redis';
 
 import { AdminConfig } from './admin.types';
-import { Favorite, IStorage, PlayRecord, SkipConfig } from './types';
+import {
+  Favorite,
+  IStorage,
+  PlayRecord,
+  SkipConfig,
+  SkipPreset,
+} from './types';
 
 // 搜索历史最大条数
 const SEARCH_HISTORY_LIMIT = 20;
@@ -331,6 +337,9 @@ export abstract class BaseRedisStorage implements IStorage {
     if (skipConfigKeys.length > 0) {
       await this.withRetry(() => this.client.del(skipConfigKeys));
     }
+
+    // 删除跳过预设组
+    await this.withRetry(() => this.client.del(this.skipPresetKey(userName)));
   }
 
   // ---------- 搜索历史 ----------
@@ -456,8 +465,8 @@ export abstract class BaseRedisStorage implements IStorage {
     keys.forEach((key, index) => {
       const value = values[index];
       if (value) {
-        // 从key中提取source+id
-        const match = key.match(/^u:.+?:skip:(.+)$/);
+        // 仅提取 source+id 格式，避免误把预设组 key（如 presets）当成跳过配置
+        const match = key.match(/^u:.+?:skip:([^+]+\+.+)$/);
         if (match) {
           const sourceAndId = match[1];
           configs[sourceAndId] = JSON.parse(value as string) as SkipConfig;
@@ -466,6 +475,30 @@ export abstract class BaseRedisStorage implements IStorage {
     });
 
     return configs;
+  }
+
+  private skipPresetKey(user: string) {
+    return `u:${user}:skip:presets`;
+  }
+
+  async getSkipPresets(userName: string): Promise<SkipPreset[]> {
+    const val = await this.withRetry(() =>
+      this.client.get(this.skipPresetKey(userName)),
+    );
+    if (!val) return [];
+
+    try {
+      const parsed = JSON.parse(val as string);
+      return Array.isArray(parsed) ? (parsed as SkipPreset[]) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  async setSkipPresets(userName: string, presets: SkipPreset[]): Promise<void> {
+    await this.withRetry(() =>
+      this.client.set(this.skipPresetKey(userName), JSON.stringify(presets)),
+    );
   }
 
   // 清空所有数据

@@ -1,6 +1,7 @@
 /* eslint-disable no-console,@typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server';
 
+import { isPublicMode } from '@/lib/auth-mode';
 import { getConfig } from '@/lib/config';
 import { db } from '@/lib/db';
 
@@ -69,6 +70,10 @@ async function generateAuthCookie(
 
 export async function POST(req: NextRequest) {
   try {
+    if (isPublicMode()) {
+      return NextResponse.json({ ok: true, mode: 'public' });
+    }
+
     // 本地 / localStorage 模式——仅校验固定密码
     if (STORAGE_TYPE === 'localstorage') {
       const envPassword = process.env.PASSWORD;

@@ -1,12 +1,14 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import NextTopLoader from 'nextjs-toploader';
-import React from 'react';
+import React, { Suspense } from 'react';
 
 import './globals.css';
 
+import { getAuthMode, isPublicAdminAllowed } from '@/lib/auth-mode';
 import { getConfig } from '@/lib/config';
 
+import { BangumiSubscriptionProvider } from '@/contexts/BangumiSubscriptionContext';
 import { DownloadManagerProvider } from '@/contexts/DownloadManagerContext';
 import { GlobalCacheProvider } from '@/contexts/GlobalCacheContext';
 
@@ -52,15 +54,19 @@ export default async function RootLayout({
     process.env.ANNOUNCEMENT ||
     '本网站仅提供影视信息搜索服务，所有内容均来自第三方网站。本站不存储任何视频资源，不对任何内容的准确性、合法性、完整性负责。';
 
-  let doubanProxyType =
-    process.env.NEXT_PUBLIC_DOUBAN_PROXY_TYPE || 'cmliussss-cdn-tencent';
+  let doubanProxyType = process.env.NEXT_PUBLIC_DOUBAN_PROXY_TYPE || 'auto';
   let doubanProxy = process.env.NEXT_PUBLIC_DOUBAN_PROXY || '';
   let doubanImageProxyType =
-    process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY_TYPE || 'cmliussss-cdn-tencent';
+    process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY_TYPE || 'auto';
   let doubanImageProxy = process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY || '';
   let disableYellowFilter =
     process.env.NEXT_PUBLIC_DISABLE_YELLOW_FILTER === 'true';
   let fluidSearch = process.env.NEXT_PUBLIC_FLUID_SEARCH !== 'false';
+  let searchResultLoadMode =
+    process.env.NEXT_PUBLIC_SEARCH_RESULT_LOAD_MODE === 'pagination'
+      ? 'pagination'
+      : 'infinite';
+  let privateLibraryEnabled = false;
   let customCategories = [] as {
     name: string;
     type: 'movie' | 'tv';
@@ -84,6 +90,13 @@ export default async function RootLayout({
       query: category.query,
     }));
     fluidSearch = config.SiteConfig.FluidSearch;
+    searchResultLoadMode =
+      config.SiteConfig.SearchResultLoadMode === 'pagination'
+        ? 'pagination'
+        : 'infinite';
+    privateLibraryEnabled = Boolean(
+      config.PrivateLibraryConfig?.connectors?.some((item) => item.enabled),
+    );
   }
 
   // 将运行时配置注入到全局 window 对象，供客户端在运行时读取
@@ -96,6 +109,12 @@ export default async function RootLayout({
     DISABLE_YELLOW_FILTER: disableYellowFilter,
     CUSTOM_CATEGORIES: customCategories,
     FLUID_SEARCH: fluidSearch,
+    SEARCH_RESULT_LOAD_MODE: searchResultLoadMode,
+    PRIVATE_LIBRARY_ENABLED: privateLibraryEnabled,
+    AUTH_MODE: getAuthMode(),
+    PUBLIC_ALLOW_ADMIN: isPublicAdminAllowed(),
+    PLAYBACK_PROXY_MODE: process.env.NEXT_PUBLIC_PLAYBACK_PROXY_MODE || 'smart',
+    PLAYBACK_MAX_AUTO_SWITCH: Number(process.env.PLAYBACK_MAX_AUTO_SWITCH) || 3,
   };
 
   return (
@@ -136,14 +155,18 @@ export default async function RootLayout({
             disableTransitionOnChange
           >
             <DownloadManagerProvider>
-              <SiteProvider siteName={siteName} announcement={announcement}>
-                <ParticleBackground />
-                <NavbarGate>
-                  <TopNavbar />
-                </NavbarGate>
-                {children}
-                <GlobalErrorIndicator />
-              </SiteProvider>
+              <BangumiSubscriptionProvider>
+                <SiteProvider siteName={siteName} announcement={announcement}>
+                  <ParticleBackground />
+                  <NavbarGate>
+                    <Suspense fallback={null}>
+                      <TopNavbar />
+                    </Suspense>
+                  </NavbarGate>
+                  {children}
+                  <GlobalErrorIndicator />
+                </SiteProvider>
+              </BangumiSubscriptionProvider>
             </DownloadManagerProvider>
           </ThemeProvider>
         </GlobalCacheProvider>

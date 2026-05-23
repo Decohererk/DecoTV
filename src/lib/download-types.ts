@@ -35,6 +35,8 @@ export interface DownloadTask {
   requestUa?: string;
   ffmpegJobId?: string;
   downloadUrl?: string;
+  subscriptionId?: string;
+  episodeNumber?: number;
   error?: string;
 }
 
@@ -46,6 +48,9 @@ export interface DownloadRequest {
   referer?: string;
   origin?: string;
   ua?: string;
+  openManager?: boolean;
+  subscriptionId?: string;
+  episodeNumber?: number;
 }
 
 export interface ParsedM3U8Result {

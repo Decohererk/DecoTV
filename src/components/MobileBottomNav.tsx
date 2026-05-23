@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 'use client';
 
 import {
@@ -8,6 +6,7 @@ import {
   Clover,
   Film,
   Home,
+  Library,
   Radio,
   Search,
   Star,
@@ -133,8 +132,11 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
 
   // 动态添加自定义分类
   useEffect(() => {
-    const runtimeConfig = (window as any).RUNTIME_CONFIG;
-    if (runtimeConfig?.CUSTOM_CATEGORIES?.length > 0) {
+    const runtimeConfig = window.RUNTIME_CONFIG;
+    if (
+      Array.isArray(runtimeConfig?.CUSTOM_CATEGORIES) &&
+      runtimeConfig.CUSTOM_CATEGORIES.length > 0
+    ) {
       setNavItems((prevItems) => {
         // 防止重复添加
         if (prevItems.some((item) => item.label === '自定义')) return prevItems;
@@ -147,6 +149,25 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
             activeGradient: 'bg-linear-to-r from-yellow-400 to-amber-500',
             activeTextColor: 'text-white',
             hoverBg: 'hover:bg-yellow-500/20',
+          },
+        ];
+      });
+    }
+
+    if (runtimeConfig?.PRIVATE_LIBRARY_ENABLED) {
+      setNavItems((prevItems) => {
+        if (prevItems.some((item) => item.href === '/my-library')) {
+          return prevItems;
+        }
+        return [
+          ...prevItems,
+          {
+            icon: Library,
+            label: '我的影库',
+            href: '/my-library',
+            activeGradient: 'bg-linear-to-r from-indigo-500 to-blue-600',
+            activeTextColor: 'text-white',
+            hoverBg: 'hover:bg-indigo-500/20',
           },
         ];
       });
@@ -176,6 +197,11 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
 
       // 直播页特殊处理
       if (href === '/live' && decodedActive.startsWith('/live')) return true;
+
+      // 我的影库特殊处理
+      if (href === '/my-library' && decodedActive.startsWith('/my-library')) {
+        return true;
+      }
 
       // 豆瓣分类匹配
       if (

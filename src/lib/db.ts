@@ -4,7 +4,13 @@ import { AdminConfig } from './admin.types';
 import { KvrocksStorage } from './kvrocks.db';
 import { MemoryStorage } from './memory.db';
 import { RedisStorage } from './redis.db';
-import { Favorite, IStorage, PlayRecord, SkipConfig } from './types';
+import {
+  Favorite,
+  IStorage,
+  PlayRecord,
+  SkipConfig,
+  SkipPreset,
+} from './types';
 import { UpstashRedisStorage } from './upstash.db';
 
 // storage type 常量: 'localstorage' | 'redis' | 'upstash'，默认 'localstorage'
@@ -75,6 +81,21 @@ export class DbManager {
     await this.storage.setPlayRecord(userName, key, record);
   }
 
+  async getPlayRecordByKey(
+    userName: string,
+    key: string,
+  ): Promise<PlayRecord | null> {
+    return this.storage.getPlayRecord(userName, key);
+  }
+
+  async savePlayRecordByKey(
+    userName: string,
+    key: string,
+    record: PlayRecord,
+  ): Promise<void> {
+    await this.storage.setPlayRecord(userName, key, record);
+  }
+
   async getAllPlayRecords(userName: string): Promise<{
     [key: string]: PlayRecord;
   }> {
@@ -87,6 +108,10 @@ export class DbManager {
     id: string,
   ): Promise<void> {
     const key = generateStorageKey(source, id);
+    await this.storage.deletePlayRecord(userName, key);
+  }
+
+  async deletePlayRecordByKey(userName: string, key: string): Promise<void> {
     await this.storage.deletePlayRecord(userName, key);
   }
 
@@ -237,6 +262,19 @@ export class DbManager {
       return (this.storage as any).getAllSkipConfigs(userName);
     }
     return {};
+  }
+
+  async getSkipPresets(userName: string): Promise<SkipPreset[]> {
+    if (typeof (this.storage as any).getSkipPresets === 'function') {
+      return (this.storage as any).getSkipPresets(userName);
+    }
+    return [];
+  }
+
+  async setSkipPresets(userName: string, presets: SkipPreset[]): Promise<void> {
+    if (typeof (this.storage as any).setSkipPresets === 'function') {
+      await (this.storage as any).setSkipPresets(userName, presets);
+    }
   }
 
   // ---------- 数据清理 ----------

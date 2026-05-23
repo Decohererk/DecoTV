@@ -4,6 +4,7 @@ import { resolveAdultFilter } from '@/lib/adult-filter';
 import { getAuthInfoFromCookie, verifyApiAuth } from '@/lib/auth';
 import { getAvailableApiSites, getCacheTime, getConfig } from '@/lib/config';
 import { searchFromApi } from '@/lib/downstream';
+import { rewriteEpisodesForAdFilterMany } from '@/lib/episode-rewriter';
 import { yellowWords } from '@/lib/yellow';
 
 export const runtime = 'nodejs';
@@ -104,8 +105,9 @@ export async function GET(request: NextRequest) {
         },
       );
     } else {
+      const rewritten = await rewriteEpisodesForAdFilterMany(result, request);
       return NextResponse.json(
-        { results: result },
+        { results: rewritten },
         {
           headers: {
             'Cache-Control': `public, max-age=${cacheTime}, s-maxage=${cacheTime}`,

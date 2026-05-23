@@ -462,6 +462,21 @@ declare namespace chrome.cast {
  * 扩展 Window 接口以支持 Cast SDK 回调
  */
 interface Window {
+  RUNTIME_CONFIG?: {
+    STORAGE_TYPE?: string;
+    DOUBAN_PROXY_TYPE?: string;
+    DOUBAN_PROXY?: string;
+    DOUBAN_IMAGE_PROXY_TYPE?: string;
+    DOUBAN_IMAGE_PROXY?: string;
+    DISABLE_YELLOW_FILTER?: boolean;
+    CUSTOM_CATEGORIES?: unknown[];
+    FLUID_SEARCH?: boolean;
+    SEARCH_RESULT_LOAD_MODE?: 'infinite' | 'pagination';
+    PRIVATE_LIBRARY_ENABLED?: boolean;
+    AUTH_MODE?: 'password' | 'public';
+    PUBLIC_ALLOW_ADMIN?: boolean;
+  };
+
   /**
    * Google Cast SDK 加载完成回调
    * SDK 加载完成后会调用此函数

@@ -16,8 +16,27 @@ import { useSourceFilter } from '@/hooks/useSourceFilter';
 import SourceBrowserIcon from '@/components/icons/SourceBrowserIcon';
 import PageLayout from '@/components/PageLayout';
 import VideoCard from '@/components/VideoCard';
+import VirtualizedVideoGrid from '@/components/VirtualizedVideoGrid';
 
 const MAX_GRID_ITEMS = 540;
+const HERO_PANEL_CLASS =
+  'rounded-3xl border border-emerald-200/70 bg-linear-to-r from-white/95 via-emerald-50/80 to-teal-100/70 p-5 shadow-[0_10px_32px_-24px_rgba(16,185,129,0.45)] dark:border-emerald-400/20 dark:from-slate-900/92 dark:via-slate-900/86 dark:to-emerald-950/70 dark:shadow-[0_10px_32px_-24px_rgba(16,185,129,0.55)] sm:p-7';
+const SURFACE_PANEL_CLASS =
+  'rounded-2xl border border-slate-200/80 bg-white/85 p-4 shadow-[0_8px_28px_-24px_rgba(14,165,233,0.45)] dark:border-white/10 dark:bg-slate-900/88 dark:shadow-[0_8px_28px_-24px_rgba(14,165,233,0.55)] sm:p-5';
+const FILTER_BUTTON_BASE =
+  'rounded-xl border px-3 py-1.5 text-sm transition-all';
+const FILTER_BUTTON_ACTIVE =
+  'border-emerald-400/60 bg-emerald-100/85 text-emerald-700 shadow-sm dark:border-emerald-300/60 dark:bg-emerald-500/20 dark:text-emerald-200';
+const FILTER_BUTTON_IDLE =
+  'border-slate-200/90 bg-white/85 text-slate-700 hover:border-emerald-300/70 hover:bg-emerald-50/90 hover:text-emerald-700 dark:border-slate-600/70 dark:bg-slate-800/50 dark:text-slate-200 dark:hover:border-emerald-400/50 dark:hover:bg-slate-800/70 dark:hover:text-emerald-200';
+const EMPTY_STATE_CLASS =
+  'rounded-xl border border-dashed border-slate-200/90 bg-slate-50/75 px-4 text-center text-sm text-slate-600 dark:border-slate-600/70 dark:bg-slate-800/35 dark:text-slate-300';
+
+function filterButtonClass(active: boolean): string {
+  return `${FILTER_BUTTON_BASE} ${
+    active ? FILTER_BUTTON_ACTIVE : FILTER_BUTTON_IDLE
+  }`;
+}
 
 function parseDoubanId(value: unknown): number | undefined {
   if (value == null) return undefined;
@@ -159,69 +178,67 @@ function SourceBrowserPageClient() {
 
   return (
     <PageLayout activePath='/source-browser'>
-      <div className='px-4 sm:px-10 py-4 sm:py-8'>
+      <div className='px-4 py-4 sm:px-10 sm:py-8'>
         <div className='mx-auto w-full max-w-6xl space-y-6'>
-          <section className='rounded-3xl border border-emerald-400/20 bg-linear-to-r from-slate-900/92 via-slate-900/86 to-emerald-950/70 p-5 shadow-[0_10px_32px_-24px_rgba(16,185,129,0.55)] sm:p-7'>
+          <section className={HERO_PANEL_CLASS}>
             <div className='flex flex-wrap items-start justify-between gap-4'>
               <div className='flex items-center gap-3'>
-                <div className='inline-flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-300/40'>
+                <div className='inline-flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-100/90 text-emerald-600 ring-1 ring-emerald-200/80 dark:bg-emerald-500/20 dark:text-emerald-300 dark:ring-emerald-300/40'>
                   <SourceBrowserIcon className='h-6 w-6' />
                 </div>
                 <div>
-                  <h1 className='text-2xl font-extrabold tracking-tight text-emerald-300'>
+                  <h1 className='text-2xl font-extrabold tracking-tight text-emerald-600 dark:text-emerald-300'>
                     源浏览器
                   </h1>
-                  <p className='text-sm text-slate-300/90'>
-                    统一管理数据源，一次选择，全站联动。
+                  <p className='text-sm text-slate-600 dark:text-slate-300/90'>
+                    统一浏览资源站分类内容，在当前页面快速切换来源与分类。
                   </p>
                 </div>
               </div>
-              <span className='inline-flex items-center rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-semibold text-emerald-200 ring-1 ring-emerald-300/30'>
+              <span className='inline-flex items-center rounded-full bg-emerald-100/80 px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200/80 dark:bg-emerald-500/15 dark:text-emerald-200 dark:ring-emerald-300/30'>
                 {sourceCount} 个可用源
               </span>
             </div>
 
             <div className='mt-4 grid gap-3 sm:grid-cols-2'>
               <label className='relative'>
-                <Search className='pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400' />
+                <Search className='pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500 dark:text-slate-400' />
                 <input
                   value={keyword}
                   onChange={(event) => setKeyword(event.target.value)}
-                  placeholder='按源名称/标识筛选...'
-                  className='h-10 w-full rounded-xl border border-slate-600/60 bg-slate-900/40 pl-9 pr-3 text-sm text-slate-100 outline-none transition-colors focus:border-emerald-400/60'
+                  placeholder='按源名称 / 标识筛选...'
+                  className='h-10 w-full rounded-xl border border-slate-200/90 bg-white/85 pl-9 pr-3 text-sm text-slate-900 outline-none shadow-sm transition-colors placeholder:text-slate-400 focus:border-emerald-400/70 dark:border-slate-600/60 dark:bg-slate-900/40 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-emerald-400/60'
                 />
               </label>
-              <div className='flex items-center justify-between rounded-xl border border-slate-600/60 bg-slate-900/40 px-4 text-sm text-slate-200'>
-                <span className='inline-flex items-center gap-2 text-slate-300'>
+              <div className='flex items-center justify-between rounded-xl border border-slate-200/90 bg-white/75 px-4 text-sm text-slate-700 shadow-sm dark:border-slate-600/60 dark:bg-slate-900/40 dark:text-slate-200'>
+                <span className='inline-flex items-center gap-2 text-slate-600 dark:text-slate-300'>
                   <Sparkles className='h-4 w-4 text-emerald-300' />
                   当前生效
                 </span>
-                <span className='font-semibold text-emerald-200'>
+                <span className='font-semibold text-emerald-700 dark:text-emerald-200'>
                   {currentSourceName}
                 </span>
               </div>
             </div>
           </section>
 
-          <section className='rounded-2xl border border-white/10 bg-slate-900/88 p-4 shadow-[0_8px_28px_-24px_rgba(14,165,233,0.55)] sm:p-5'>
+          <section className={SURFACE_PANEL_CLASS}>
             <div className='mb-3 flex items-center justify-between'>
-              <h2 className='text-sm font-semibold text-slate-200'>
+              <h2 className='text-sm font-semibold text-slate-800 dark:text-slate-200'>
                 选择资源站
               </h2>
-              {isLoadingSources && (
-                <span className='text-xs text-slate-400'>加载中...</span>
-              )}
+              {isLoadingSources ? (
+                <span className='text-xs text-slate-500 dark:text-slate-400'>
+                  加载中...
+                </span>
+              ) : null}
             </div>
 
             <div className='flex flex-wrap gap-2'>
               <button
                 type='button'
                 onClick={() => setCurrentSource('auto')}
-                className={`rounded-xl border px-3 py-1.5 text-sm transition-all ${
-                  currentSource === 'auto'
-                    ? 'border-emerald-300/60 bg-emerald-500/20 text-emerald-200'
-                    : 'border-slate-600/70 bg-slate-800/50 text-slate-200 hover:border-emerald-400/50'
-                }`}
+                className={filterButtonClass(currentSource === 'auto')}
               >
                 聚合
               </button>
@@ -233,11 +250,7 @@ function SourceBrowserPageClient() {
                     key={source.key}
                     type='button'
                     onClick={() => setCurrentSource(source.key)}
-                    className={`rounded-xl border px-3 py-1.5 text-sm transition-all ${
-                      active
-                        ? 'border-emerald-300/60 bg-emerald-500/20 text-emerald-200'
-                        : 'border-slate-600/70 bg-slate-800/50 text-slate-200 hover:border-emerald-400/50'
-                    }`}
+                    className={filterButtonClass(active)}
                   >
                     {source.name}
                   </button>
@@ -246,39 +259,38 @@ function SourceBrowserPageClient() {
             </div>
           </section>
 
-          <section className='rounded-2xl border border-white/10 bg-slate-900/88 p-4 sm:p-5'>
+          <section className={SURFACE_PANEL_CLASS}>
             <div className='flex flex-wrap items-center justify-between gap-3'>
               <div>
-                <h3 className='text-sm font-semibold text-slate-200'>
+                <h3 className='text-sm font-semibold text-slate-800 dark:text-slate-200'>
                   当前源分类浏览
                 </h3>
-                <p className='mt-1 text-xs text-slate-400'>
-                  自动读取当前源 class
-                  分类，点击后在当前页筛选，不跳转其他页面。
+                <p className='mt-1 text-xs text-slate-500 dark:text-slate-400'>
+                  自动读取当前源的分类，并在本页直接浏览，不跳转到其他页面。
                 </p>
               </div>
-              {currentSource !== 'auto' && selectedCategory && (
-                <span className='inline-flex items-center gap-1 text-xs text-emerald-200'>
+              {currentSource !== 'auto' && selectedCategory ? (
+                <span className='inline-flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-200'>
                   <CheckCircle2 className='h-4 w-4' />
-                  已选分类: {selectedCategory.type_name}
+                  已选分类：{selectedCategory.type_name}
                 </span>
-              )}
+              ) : null}
             </div>
 
             {currentSource === 'auto' ? (
-              <div className='mt-3 rounded-xl border border-dashed border-slate-600/70 bg-slate-800/35 px-4 py-6 text-center text-sm text-slate-300'>
+              <div className={`mt-3 py-6 ${EMPTY_STATE_CLASS}`}>
                 请选择一个具体数据源后再浏览分类内容。
               </div>
             ) : (
               <>
                 <div className='mt-3 flex flex-wrap gap-2'>
                   {isLoadingCategories ? (
-                    <div className='inline-flex items-center gap-1 text-sm text-slate-300'>
+                    <div className='inline-flex items-center gap-1 text-sm text-slate-600 dark:text-slate-300'>
                       <Loader2 className='h-4 w-4 animate-spin' />
                       正在读取分类...
                     </div>
                   ) : sourceCategories.length === 0 ? (
-                    <div className='text-sm text-amber-200'>
+                    <div className='text-sm text-amber-700 dark:text-amber-200'>
                       当前源未返回分类数据，请检查源接口。
                     </div>
                   ) : (
@@ -290,11 +302,7 @@ function SourceBrowserPageClient() {
                           key={categoryId}
                           type='button'
                           onClick={() => setSelectedCategoryId(categoryId)}
-                          className={`rounded-xl border px-3 py-1.5 text-sm transition-all ${
-                            active
-                              ? 'border-emerald-300/60 bg-emerald-500/20 text-emerald-200'
-                              : 'border-slate-600/70 bg-slate-800/50 text-slate-200 hover:border-emerald-400/50'
-                          }`}
+                          className={filterButtonClass(active)}
                         >
                           {category.type_name}
                         </button>
@@ -303,57 +311,58 @@ function SourceBrowserPageClient() {
                   )}
                 </div>
 
-                {error && (
-                  <div className='mt-3 rounded-xl border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-200'>
+                {error ? (
+                  <div className='mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-400/30 dark:bg-red-500/10 dark:text-red-200'>
                     {error}
                   </div>
-                )}
+                ) : null}
 
-                {categoryError && (
-                  <div className='mt-3 rounded-xl border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-200'>
+                {categoryError ? (
+                  <div className='mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-400/30 dark:bg-red-500/10 dark:text-red-200'>
                     {categoryError}
                   </div>
-                )}
+                ) : null}
 
                 {isLoadingCategoryItems ? (
-                  <div className='mt-4 flex items-center justify-center gap-2 py-8 text-sm text-slate-300'>
+                  <div className='mt-4 flex items-center justify-center gap-2 py-8 text-sm text-slate-600 dark:text-slate-300'>
                     <Loader2 className='h-4 w-4 animate-spin' />
                     正在拉取分类内容...
                   </div>
                 ) : categoryItems.length === 0 ? (
-                  <div className='mt-4 rounded-xl border border-dashed border-slate-600/70 bg-slate-800/35 px-4 py-8 text-center text-sm text-slate-300'>
-                    该分类暂无可展示内容。
+                  <div className={`mt-4 py-8 ${EMPTY_STATE_CLASS}`}>
+                    该分类暂时没有可展示内容。
                   </div>
                 ) : (
                   <div className='mt-4'>
-                    <div className='grid grid-cols-3 gap-x-2 gap-y-12 px-0 sm:grid-cols-[repeat(auto-fill,minmax(160px,1fr))] sm:gap-x-8 sm:gap-y-20'>
-                      {categoryItems.map((item, index) => (
-                        <div
-                          key={String(
-                            item.vod_id ||
-                              `${item.vod_name || 'item'}-${item.vod_year || ''}-${item.vod_pic || ''}-${index}`,
+                    <VirtualizedVideoGrid
+                      data={categoryItems}
+                      mode='auto'
+                      scrollParent='body'
+                      virtualizationThreshold={36}
+                      overscan={620}
+                      className='grid grid-cols-3 gap-x-2 gap-y-12 px-0 sm:grid-cols-[repeat(auto-fill,minmax(160px,1fr))] sm:gap-x-8 sm:gap-y-20'
+                      itemClassName='w-full'
+                      itemKey={(item, index) =>
+                        String(
+                          item.vod_id ||
+                            `${item.vod_name || 'item'}-${item.vod_year || ''}-${item.vod_pic || ''}-${index}`,
+                        )
+                      }
+                      renderItem={(item) => (
+                        <VideoCard
+                          id={String(item.vod_id || '')}
+                          source={currentSource}
+                          source_name={currentSourceName}
+                          title={item.vod_name || 'Untitled'}
+                          poster={item.vod_pic || ''}
+                          year={item.vod_year || ''}
+                          douban_id={parseDoubanId(
+                            item.vod_douban_id ?? item.douban_id,
                           )}
-                          className='w-full'
-                          style={{
-                            contentVisibility: 'auto',
-                            containIntrinsicSize: '300px',
-                          }}
-                        >
-                          <VideoCard
-                            id={String(item.vod_id || '')}
-                            source={currentSource}
-                            source_name={currentSourceName}
-                            title={item.vod_name || 'Untitled'}
-                            poster={item.vod_pic || ''}
-                            year={item.vod_year || ''}
-                            douban_id={parseDoubanId(
-                              item.vod_douban_id ?? item.douban_id,
-                            )}
-                            from='search'
-                          />
-                        </div>
-                      ))}
-                    </div>
+                          from='search'
+                        />
+                      )}
+                    />
 
                     <div className='mt-10 flex flex-col items-center gap-4 pb-2'>
                       <div
@@ -365,7 +374,7 @@ function SourceBrowserPageClient() {
                         type='button'
                         onClick={handleLoadMore}
                         disabled={!activeHasMore || activeIsLoadingMore}
-                        className='inline-flex min-w-40 items-center justify-center gap-2 rounded-xl border border-white/20 bg-slate-900/70 px-5 py-2.5 text-sm font-medium text-slate-100 shadow-[0_0_0_1px_rgba(148,163,184,0.14)_inset,0_10px_30px_-16px_rgba(16,185,129,0.65)] backdrop-blur-md transition hover:border-emerald-300/50 hover:bg-slate-800/80 disabled:cursor-not-allowed disabled:border-slate-600/60 disabled:bg-slate-800/45 disabled:text-slate-400'
+                        className='inline-flex min-w-40 items-center justify-center gap-2 rounded-xl border border-slate-200/90 bg-white/85 px-5 py-2.5 text-sm font-medium text-slate-700 shadow-[0_10px_30px_-18px_rgba(16,185,129,0.35)] backdrop-blur-md transition hover:border-emerald-300/70 hover:bg-emerald-50/90 hover:text-emerald-700 disabled:cursor-not-allowed disabled:border-slate-200/70 disabled:bg-slate-100/65 disabled:text-slate-400 dark:border-white/20 dark:bg-slate-900/70 dark:text-slate-100 dark:shadow-[0_0_0_1px_rgba(148,163,184,0.14)_inset,0_10px_30px_-16px_rgba(16,185,129,0.65)] dark:hover:border-emerald-300/50 dark:hover:bg-slate-800/80 dark:hover:text-emerald-200 dark:disabled:border-slate-600/60 dark:disabled:bg-slate-800/45 dark:disabled:text-slate-400'
                       >
                         {activeIsLoadingMore ? (
                           <>
@@ -383,12 +392,12 @@ function SourceBrowserPageClient() {
                           '已到底部'
                         )}
                       </button>
-                      {hasReachedDomLimit && (
-                        <p className='text-xs text-slate-400'>
+                      {hasReachedDomLimit ? (
+                        <p className='text-xs text-slate-500 dark:text-slate-400'>
                           已限制最大渲染数量（{MAX_GRID_ITEMS}
                           ），请切换分类继续浏览。
                         </p>
-                      )}
+                      ) : null}
                     </div>
                   </div>
                 )}

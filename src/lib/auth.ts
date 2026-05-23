@@ -1,5 +1,7 @@
 import { NextRequest } from 'next/server';
 
+import { isPublicAdminAllowed, isPublicMode } from './auth-mode';
+
 // 单例缓存，避免重复打印警告
 let cachedSecret: string | null | undefined;
 let warnedMissingSecret = false;
@@ -55,7 +57,7 @@ export function getAuthInfoFromBrowserCookie(): {
   username?: string;
   signature?: string;
   timestamp?: number;
-  role?: 'owner' | 'admin' | 'user';
+  role?: 'owner' | 'admin' | 'user' | 'guest';
 } | null {
   if (typeof window === 'undefined') {
     return null;
@@ -111,7 +113,7 @@ export function getAuthInfoFromBrowserCookie(): {
 export function verifyApiAuth(request: NextRequest): {
   isValid: boolean;
   username?: string;
-  role?: 'owner' | 'admin' | 'user';
+  role?: 'owner' | 'admin' | 'user' | 'guest';
   isOwner: boolean;
   isLocalMode: boolean;
 } {
@@ -120,6 +122,34 @@ export function verifyApiAuth(request: NextRequest): {
   const isLocalMode = storageType === 'localstorage' && !hasRedis;
 
   const authInfo = getAuthInfoFromCookie(request);
+  const pathname = request.nextUrl.pathname;
+  const isAdminApi = pathname.startsWith('/api/admin');
+
+  if (isPublicMode()) {
+    if (isAdminApi) {
+      if (isPublicAdminAllowed()) {
+        return {
+          isValid: true,
+          username: process.env.USERNAME || '__public_admin__',
+          role: 'owner',
+          isOwner: true,
+          isLocalMode,
+        };
+      }
+      // public 模式默认不授予后台权限，继续走原密码/签名校验。
+    } else {
+      // public 前台 API 使用固定 guest 命名空间，避免写入站长账户。
+      return {
+        isValid: true,
+        username: authInfo?.username || '__public_guest__',
+        role:
+          (authInfo as { role?: 'owner' | 'admin' | 'user' | 'guest' } | null)
+            ?.role || 'guest',
+        isOwner: false,
+        isLocalMode,
+      };
+    }
+  }
 
   // 无认证信息
   if (!authInfo) {
@@ -151,7 +181,9 @@ export function verifyApiAuth(request: NextRequest): {
   return {
     isValid: true,
     username: authInfo.username,
-    role: (authInfo as { role?: 'owner' | 'admin' | 'user' }).role || 'user',
+    role:
+      (authInfo as { role?: 'owner' | 'admin' | 'user' | 'guest' }).role ||
+      'user',
     isOwner,
     isLocalMode,
   };

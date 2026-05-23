@@ -3,7 +3,13 @@
 import { Redis } from '@upstash/redis';
 
 import { AdminConfig } from './admin.types';
-import { Favorite, IStorage, PlayRecord, SkipConfig } from './types';
+import {
+  Favorite,
+  IStorage,
+  PlayRecord,
+  SkipConfig,
+  SkipPreset,
+} from './types';
 
 // 搜索历史最大条数
 const SEARCH_HISTORY_LIMIT = 20;
@@ -332,8 +338,8 @@ export class UpstashRedisStorage implements IStorage {
     keys.forEach((key, index) => {
       const value = values[index];
       if (value) {
-        // 从key中提取source+id
-        const match = key.match(/^u:.+?:skip:(.+)$/);
+        // 仅提取 source+id 格式，避免误把预设组 key（如 presets）当成跳过配置
+        const match = key.match(/^u:.+?:skip:([^+]+\+.+)$/);
         if (match) {
           const sourceAndId = match[1];
           configs[sourceAndId] = value as SkipConfig;
@@ -342,6 +348,38 @@ export class UpstashRedisStorage implements IStorage {
     });
 
     return configs;
+  }
+
+  private skipPresetKey(user: string) {
+    return `u:${user}:skip:presets`;
+  }
+
+  async getSkipPresets(userName: string): Promise<SkipPreset[]> {
+    const val = await withRetry(() =>
+      this.client.get(this.skipPresetKey(userName)),
+    );
+    if (!val) return [];
+
+    if (Array.isArray(val)) {
+      return val as SkipPreset[];
+    }
+
+    if (typeof val === 'string') {
+      try {
+        const parsed = JSON.parse(val);
+        return Array.isArray(parsed) ? (parsed as SkipPreset[]) : [];
+      } catch {
+        return [];
+      }
+    }
+
+    return [];
+  }
+
+  async setSkipPresets(userName: string, presets: SkipPreset[]): Promise<void> {
+    await withRetry(() =>
+      this.client.set(this.skipPresetKey(userName), presets),
+    );
   }
 
   // 清空所有数据

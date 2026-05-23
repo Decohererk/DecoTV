@@ -48,7 +48,12 @@ import { useRouter } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-import { AdminConfig, DanmuCustomNode } from '@/lib/admin.types';
+import {
+  AdminConfig,
+  DanmuCustomNode,
+  PrivateLibraryConnector,
+  SearchResultLoadMode,
+} from '@/lib/admin.types';
 import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
 import { DEFAULT_PANSOU_SERVER_URL } from '@/lib/pansou';
 
@@ -136,6 +141,9 @@ interface AlertModalProps {
   message?: string;
   timer?: number;
   showConfirm?: boolean;
+  onConfirm?: () => void;
+  confirmText?: string;
+  cancelText?: string;
 }
 
 const AlertModal = ({
@@ -146,6 +154,9 @@ const AlertModal = ({
   message,
   timer,
   showConfirm = false,
+  onConfirm,
+  confirmText = '确定',
+  cancelText = '取消',
 }: AlertModalProps) => {
   const [isVisible, setIsVisible] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -222,14 +233,34 @@ const AlertModal = ({
             <p className='text-gray-600 dark:text-gray-400 mb-4'>{message}</p>
           )}
 
-          {showConfirm && (
-            <button
-              onClick={onClose}
-              className={`px-4 py-2 text-sm font-medium ${buttonStyles.primary}`}
-            >
-              确定
-            </button>
-          )}
+          {showConfirm ? (
+            onConfirm ? (
+              <div className='flex items-center justify-center gap-3'>
+                <button
+                  onClick={onClose}
+                  className={`px-4 py-2 text-sm font-medium ${buttonStyles.secondary}`}
+                >
+                  {cancelText}
+                </button>
+                <button
+                  onClick={() => {
+                    onConfirm();
+                    onClose();
+                  }}
+                  className={`px-4 py-2 text-sm font-medium ${buttonStyles.primary}`}
+                >
+                  {confirmText}
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={onClose}
+                className={`px-4 py-2 text-sm font-medium ${buttonStyles.primary}`}
+              >
+                {confirmText}
+              </button>
+            )
+          ) : null}
         </div>
       </div>
     </div>,
@@ -246,6 +277,9 @@ const useAlertModal = () => {
     message?: string;
     timer?: number;
     showConfirm?: boolean;
+    onConfirm?: () => void;
+    confirmText?: string;
+    cancelText?: string;
   }>({
     isOpen: false,
     type: 'success',
@@ -320,8 +354,13 @@ interface SiteConfig {
   DoubanProxy: string;
   DoubanImageProxyType: string;
   DoubanImageProxy: string;
+  TmdbApiKey: string;
+  TmdbProxyType: 'direct' | 'forward' | 'reverse';
+  TmdbProxy: string;
+  TmdbReverseProxy: string;
   DisableYellowFilter: boolean;
   FluidSearch: boolean;
+  SearchResultLoadMode: SearchResultLoadMode;
   // 登录页面背景图
   LoginBackground: string;
 }
@@ -333,8 +372,40 @@ interface DataSource {
   api: string;
   detail?: string;
   disabled?: boolean;
+  proxyStrategy?: 'auto' | 'direct' | 'proxy' | 'manifest-only';
+  ua?: string;
+  referer?: string;
+  origin?: string;
+  headers?: Record<string, string>;
+  timeoutMs?: number;
+  priority?: number;
+  regionHint?: string;
+  adult?: boolean;
+  disabledReason?: string;
   is_adult?: boolean; // 标记是否为成人资源
+  disable_ad_filter?: boolean; // 该源不走 m3u8 广告过滤代理
   from: 'config' | 'custom';
+}
+
+const ADULT_SOURCE_PATTERN = /🔞|成人|福利|倫理|伦理|18\+|adult|porn|xxx/i;
+
+function isProbablyAdultSourceName(name?: string) {
+  return ADULT_SOURCE_PATTERN.test(name || '');
+}
+
+function getSourcePlaybackFields(item: Record<string, any>) {
+  const fields: Record<string, any> = {};
+  if (item.proxyStrategy) fields.proxyStrategy = item.proxyStrategy;
+  if (item.ua) fields.ua = item.ua;
+  if (item.referer) fields.referer = item.referer;
+  if (item.origin) fields.origin = item.origin;
+  if (item.headers && typeof item.headers === 'object')
+    fields.headers = item.headers;
+  if (item.timeoutMs) fields.timeoutMs = Number(item.timeoutMs);
+  if (item.priority !== undefined) fields.priority = Number(item.priority);
+  if (item.regionHint) fields.regionHint = item.regionHint;
+  if (item.disabledReason) fields.disabledReason = item.disabledReason;
+  return fields;
 }
 
 // 直播源数据类型
@@ -2529,6 +2600,9 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
         message={alertModal.message}
         timer={alertModal.timer}
         showConfirm={alertModal.showConfirm}
+        onConfirm={alertModal.onConfirm}
+        confirmText={alertModal.confirmText}
+        cancelText={alertModal.cancelText}
       />
     </div>
   );
@@ -2665,6 +2739,7 @@ const VideoSourceConfig = ({
             detail: payload.detail || '',
             disabled: false,
             is_adult: payload.is_adult || false,
+            ...getSourcePlaybackFields(payload),
             from: 'custom',
           };
           sources.push(newSource);
@@ -2806,6 +2881,23 @@ const VideoSourceConfig = ({
     });
   };
 
+  // 切换该源是否走 m3u8 广告过滤代理（disable_ad_filter=true 时该源直连上游，跳过过滤）
+  const handleToggleAdFilter = (key: string) => {
+    const target = sources.find((s) => s.key === key);
+    if (!target) return;
+    const newDisable = !target.disable_ad_filter;
+
+    withLoading(`toggleAdFilter_${key}`, () =>
+      callSourceApi({
+        action: 'update_ad_filter',
+        key,
+        disable_ad_filter: newDisable,
+      }),
+    ).catch(() => {
+      console.error('切换广告过滤豁免失败', key);
+    });
+  };
+
   const handleDelete = (key: string) => {
     const target = sources.find((s) => s.key === key);
     if (!target) return;
@@ -2844,6 +2936,7 @@ const VideoSourceConfig = ({
         api: newSource.api,
         detail: newSource.detail,
         is_adult: newSource.is_adult || false,
+        ...getSourcePlaybackFields(newSource),
       });
       setNewSource({
         name: '',
@@ -2973,11 +3066,27 @@ const VideoSourceConfig = ({
                 console.log(`开始检测 ${data.totalSources} 个视频源`);
                 break;
 
+              case 'ping':
+                break;
+
               case 'source_result':
               case 'source_error':
                 // 更新验证结果
                 setValidationResults((prev) => {
                   const existing = prev.find((r) => r.key === data.source);
+                  const message =
+                    data.message ||
+                    (data.status === 'valid'
+                      ? '搜索正常'
+                      : data.status === 'no_results'
+                        ? '无法搜索到结果'
+                        : '连接失败');
+                  const resultCount =
+                    typeof data.resultCount === 'number'
+                      ? data.resultCount
+                      : data.status === 'valid'
+                        ? 1
+                        : 0;
                   if (existing) {
                     return prev.map((r) =>
                       r.key === data.source
@@ -2987,13 +3096,8 @@ const VideoSourceConfig = ({
                               sources.find((s) => s.key === data.source)
                                 ?.name || data.source,
                             status: data.status,
-                            message:
-                              data.status === 'valid'
-                                ? '搜索正常'
-                                : data.status === 'no_results'
-                                  ? '无法搜索到结果'
-                                  : '连接失败',
-                            resultCount: data.status === 'valid' ? 1 : 0,
+                            message,
+                            resultCount,
                           }
                         : r,
                     );
@@ -3006,13 +3110,8 @@ const VideoSourceConfig = ({
                           sources.find((s) => s.key === data.source)?.name ||
                           data.source,
                         status: data.status,
-                        message:
-                          data.status === 'valid'
-                            ? '搜索正常'
-                            : data.status === 'no_results'
-                              ? '无法搜索到结果'
-                              : '连接失败',
-                        resultCount: data.status === 'valid' ? 1 : 0,
+                        message,
+                        resultCount,
                       },
                     ];
                   }
@@ -3189,6 +3288,10 @@ const VideoSourceConfig = ({
           if (source.is_adult) {
             apiSiteObj[source.key].is_adult = source.is_adult;
           }
+          Object.assign(
+            apiSiteObj[source.key],
+            getSourcePlaybackFields(source),
+          );
         });
 
         exportData = {
@@ -3309,7 +3412,12 @@ const VideoSourceConfig = ({
             name: item.name,
             api: item.api,
             detail: item.detail || '',
-            is_adult: item.is_adult || false,
+            is_adult:
+              item.is_adult ||
+              item.adult ||
+              isProbablyAdultSourceName(item.name),
+            adult: item.adult,
+            ...getSourcePlaybackFields(item),
           });
 
           result.success++;
@@ -3317,6 +3425,10 @@ const VideoSourceConfig = ({
             name: item.name,
             key: item.key,
             status: 'success',
+            reason:
+              !item.is_adult && isProbablyAdultSourceName(item.name)
+                ? '检测到疑似成人源，已自动标记成人内容'
+                : undefined,
           });
         } catch (err) {
           result.failed++;
@@ -3489,6 +3601,32 @@ const VideoSourceConfig = ({
             <span
               className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
                 source.is_adult ? 'translate-x-5' : 'translate-x-0.5'
+              }`}
+            />
+          </button>
+        </td>
+        <td className='px-6 py-4 whitespace-nowrap text-center'>
+          <button
+            onClick={() => handleToggleAdFilter(source.key)}
+            disabled={isLoading(`toggleAdFilter_${source.key}`)}
+            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${
+              !source.disable_ad_filter
+                ? buttonStyles.toggleOn
+                : buttonStyles.toggleOff
+            } ${
+              isLoading(`toggleAdFilter_${source.key}`)
+                ? 'opacity-50 cursor-not-allowed'
+                : 'cursor-pointer hover:opacity-80'
+            }`}
+            title={
+              source.disable_ad_filter
+                ? '已豁免：该源直连上游，不删广告段'
+                : '已启用：通过 m3u8 过滤代理删除广告段'
+            }
+          >
+            <span
+              className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                !source.disable_ad_filter ? 'translate-x-5' : 'translate-x-0.5'
               }`}
             />
           </button>
@@ -4094,6 +4232,12 @@ const VideoSourceConfig = ({
                 <th className='px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
                   成人资源
                 </th>
+                <th
+                  className='px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'
+                  title='关闭后该源将跳过 m3u8 广告过滤代理，直连上游'
+                >
+                  广告过滤
+                </th>
                 <th className='px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
                   有效性
                 </th>
@@ -4195,6 +4339,9 @@ const VideoSourceConfig = ({
         message={alertModal.message}
         timer={alertModal.timer}
         showConfirm={alertModal.showConfirm}
+        onConfirm={alertModal.onConfirm}
+        confirmText={alertModal.confirmText}
+        cancelText={alertModal.cancelText}
       />
 
       {/* 导入导出模态框 */}
@@ -4799,7 +4946,11 @@ const ConfigFileComponent = ({
           name: site.name,
           api: site.api,
           detail: site.detail,
-          is_adult: site.is_adult || false,
+          is_adult:
+            site.is_adult ||
+            (site as any).adult ||
+            isProbablyAdultSourceName(site.name),
+          ...(getSourcePlaybackFields(site as any) as Partial<DataSource>),
           from: 'config' as const,
           disabled: false,
         }),
@@ -5088,23 +5239,36 @@ const SiteConfigComponent = ({
     Announcement: '',
     SearchDownstreamMaxPage: 1,
     SiteInterfaceCacheTime: 7200,
-    DoubanProxyType: 'cmliussss-cdn-tencent',
+    DoubanProxyType: 'auto',
     DoubanProxy: '',
-    DoubanImageProxyType: 'cmliussss-cdn-tencent',
+    DoubanImageProxyType: 'auto',
     DoubanImageProxy: '',
+    TmdbApiKey: '',
+    TmdbProxyType: 'direct',
+    TmdbProxy: '',
+    TmdbReverseProxy: '',
     DisableYellowFilter: false,
     FluidSearch: true,
+    SearchResultLoadMode: 'infinite',
     LoginBackground: 'https://pan.yyds.nyc.mn/background.png',
   });
+
+  // 广告过滤总开关（独立于 SiteConfig，立即保存到 /api/admin/adfilter）
+  const [adFilterEnabled, setAdFilterEnabled] = useState(true);
+  const [adFilterSaving, setAdFilterSaving] = useState(false);
 
   // 豆瓣数据源相关状态
   const [isDoubanDropdownOpen, setIsDoubanDropdownOpen] = useState(false);
   const [isDoubanImageProxyDropdownOpen, setIsDoubanImageProxyDropdownOpen] =
     useState(false);
+  const [doubanDataTestResult, setDoubanDataTestResult] = useState('');
+  const [doubanImageTestResult, setDoubanImageTestResult] = useState('');
 
   // 豆瓣数据源选项
   const doubanDataSourceOptions = [
+    { value: 'auto', label: '智能自动（推荐）' },
     { value: 'direct', label: '直连（服务器直接请求豆瓣）' },
+    { value: 'server', label: '服务器代理' },
     { value: 'cors-proxy-zwei', label: 'Cors Proxy By Zwei' },
     {
       value: 'cmliussss-cdn-tencent',
@@ -5116,6 +5280,7 @@ const SiteConfigComponent = ({
 
   // 豆瓣图片代理选项
   const doubanImageProxyTypeOptions = [
+    { value: 'auto', label: '智能自动（推荐）' },
     { value: 'direct', label: '直连（浏览器直接请求豆瓣）' },
     { value: 'server', label: '服务器代理（由服务器代理请求豆瓣）' },
     { value: 'img3', label: '豆瓣官方精品 CDN（阿里云）' },
@@ -5150,20 +5315,54 @@ const SiteConfigComponent = ({
     if (config?.SiteConfig) {
       setSiteSettings({
         ...config.SiteConfig,
-        DoubanProxyType:
-          config.SiteConfig.DoubanProxyType || 'cmliussss-cdn-tencent',
+        DoubanProxyType: config.SiteConfig.DoubanProxyType || 'auto',
         DoubanProxy: config.SiteConfig.DoubanProxy || '',
-        DoubanImageProxyType:
-          config.SiteConfig.DoubanImageProxyType || 'cmliussss-cdn-tencent',
+        DoubanImageProxyType: config.SiteConfig.DoubanImageProxyType || 'auto',
         DoubanImageProxy: config.SiteConfig.DoubanImageProxy || '',
+        TmdbApiKey: config.TMDBConfig?.ApiKey || '',
+        TmdbProxyType: config.SiteConfig.TmdbProxyType || 'direct',
+        TmdbProxy: config.SiteConfig.TmdbProxy || '',
+        TmdbReverseProxy: config.SiteConfig.TmdbReverseProxy || '',
         DisableYellowFilter: config.SiteConfig.DisableYellowFilter || false,
         FluidSearch: config.SiteConfig.FluidSearch ?? true,
+        SearchResultLoadMode:
+          config.SiteConfig.SearchResultLoadMode === 'pagination'
+            ? 'pagination'
+            : 'infinite',
         LoginBackground:
           config.SiteConfig.LoginBackground ||
           'https://pan.yyds.nyc.mn/background.png',
       });
     }
+    if (config?.AdFilterConfig) {
+      setAdFilterEnabled(config.AdFilterConfig.enabled ?? true);
+    }
   }, [config]);
+
+  // 切换广告过滤总开关，立即调用 /api/admin/adfilter 保存
+  const handleToggleAdFilterGlobal = async () => {
+    if (adFilterSaving) return;
+    const next = !adFilterEnabled;
+    setAdFilterEnabled(next); // 乐观更新
+    setAdFilterSaving(true);
+    try {
+      const resp = await fetch('/api/admin/adfilter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: next }),
+      });
+      if (!resp.ok) {
+        setAdFilterEnabled(!next); // 失败回滚
+        const err = await resp.json().catch(() => null);
+        showError(err?.error || '保存广告过滤开关失败');
+      }
+    } catch (e) {
+      setAdFilterEnabled(!next);
+      showError(e instanceof Error ? e.message : '保存广告过滤开关失败');
+    } finally {
+      setAdFilterSaving(false);
+    }
+  };
 
   // 点击外部区域关闭下拉框
   useEffect(() => {
@@ -5216,6 +5415,50 @@ const SiteConfigComponent = ({
     }));
   };
 
+  const handleTestDoubanProxy = async (target: 'data' | 'image') => {
+    const params = new URLSearchParams({
+      target,
+      proxyType:
+        target === 'data'
+          ? siteSettings.DoubanProxyType
+          : siteSettings.DoubanImageProxyType,
+      proxyUrl:
+        target === 'data'
+          ? siteSettings.DoubanProxy
+          : siteSettings.DoubanImageProxy,
+    });
+    const loadingKey = target === 'data' ? 'testDoubanData' : 'testDoubanImage';
+
+    await withLoading(loadingKey, async () => {
+      const resp = await fetch(`/api/douban/health?${params.toString()}`, {
+        cache: 'no-store',
+      });
+      const result = await resp.json().catch(() => ({}));
+      const attempts = Array.isArray(result.attempts) ? result.attempts : [];
+      const firstFailure = attempts.find((item: any) => !item.ok);
+      const message = result.ok
+        ? `成功：${result.provider}，${Math.round(result.durationMs || 0)}ms`
+        : `失败：${firstFailure?.reason || result.error || '未知错误'}`;
+
+      if (target === 'data') {
+        setDoubanDataTestResult(message);
+      } else {
+        setDoubanImageTestResult(message);
+      }
+
+      if (!resp.ok || !result.ok) {
+        throw new Error(message);
+      }
+
+      showSuccess(message, showAlert);
+    }).catch((err) => {
+      showError(
+        err instanceof Error ? err.message : '豆瓣代理检测失败',
+        showAlert,
+      );
+    });
+  };
+
   // 保存站点配置
   const handleSave = async () => {
     await withLoading('saveSiteConfig', async () => {
@@ -5232,6 +5475,7 @@ const SiteConfigComponent = ({
         }
 
         showSuccess('保存成功, 请刷新页面', showAlert);
+        window.dispatchEvent(new CustomEvent('doubanProxyChanged'));
         await refreshConfig();
       } catch (err) {
         showError(err instanceof Error ? err.message : '保存失败', showAlert);
@@ -5341,6 +5585,21 @@ const SiteConfigComponent = ({
           <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
             选择获取豆瓣数据的方式
           </p>
+          <div className='mt-2 flex items-center gap-2'>
+            <button
+              type='button'
+              onClick={() => handleTestDoubanProxy('data')}
+              disabled={isLoading('testDoubanData')}
+              className='inline-flex items-center px-3 py-1.5 rounded-lg text-xs bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-60'
+            >
+              {isLoading('testDoubanData') ? '检测中...' : '检测数据代理'}
+            </button>
+            {doubanDataTestResult && (
+              <span className='text-xs text-gray-500 dark:text-gray-400'>
+                {doubanDataTestResult}
+              </span>
+            )}
+          </div>
 
           {/* 感谢信息 */}
           {getThanksInfo(siteSettings.DoubanProxyType) && (
@@ -5452,6 +5711,21 @@ const SiteConfigComponent = ({
           <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
             选择获取豆瓣图片的方式
           </p>
+          <div className='mt-2 flex items-center gap-2'>
+            <button
+              type='button'
+              onClick={() => handleTestDoubanProxy('image')}
+              disabled={isLoading('testDoubanImage')}
+              className='inline-flex items-center px-3 py-1.5 rounded-lg text-xs bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-60'
+            >
+              {isLoading('testDoubanImage') ? '检测中...' : '检测图片代理'}
+            </button>
+            {doubanImageTestResult && (
+              <span className='text-xs text-gray-500 dark:text-gray-400'>
+                {doubanImageTestResult}
+              </span>
+            )}
+          </div>
 
           {/* 感谢信息 */}
           {getThanksInfo(siteSettings.DoubanImageProxyType) && (
@@ -5498,6 +5772,115 @@ const SiteConfigComponent = ({
             </p>
           </div>
         )}
+      </div>
+
+      {/* TMDB 代理设置 */}
+      <div className='space-y-3 p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40'>
+        <div>
+          <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
+            TMDB API Key
+          </label>
+          <input
+            type='password'
+            placeholder='输入 TMDB v3 API Key'
+            value={siteSettings.TmdbApiKey}
+            onChange={(e) =>
+              setSiteSettings((prev) => ({
+                ...prev,
+                TmdbApiKey: e.target.value,
+              }))
+            }
+            className='w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100'
+          />
+        </div>
+
+        <div>
+          <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
+            TMDB 代理模式
+          </label>
+          <select
+            value={siteSettings.TmdbProxyType}
+            onChange={(e) =>
+              setSiteSettings((prev) => ({
+                ...prev,
+                TmdbProxyType: e.target.value as
+                  | 'direct'
+                  | 'forward'
+                  | 'reverse',
+              }))
+            }
+            className='w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100'
+          >
+            <option value='direct'>直连</option>
+            <option value='forward'>正向代理</option>
+            <option value='reverse'>反向代理</option>
+          </select>
+        </div>
+
+        {siteSettings.TmdbProxyType === 'forward' && (
+          <div>
+            <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
+              TMDB 正向代理地址
+            </label>
+            <input
+              type='text'
+              placeholder='例如: https://proxy.example.com/fetch?url='
+              value={siteSettings.TmdbProxy}
+              onChange={(e) =>
+                setSiteSettings((prev) => ({
+                  ...prev,
+                  TmdbProxy: e.target.value,
+                }))
+              }
+              className='w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100'
+            />
+          </div>
+        )}
+
+        {siteSettings.TmdbProxyType === 'reverse' && (
+          <div>
+            <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
+              TMDB 反向代理地址
+            </label>
+            <input
+              type='text'
+              placeholder='例如: https://tmdb.your-domain.com'
+              value={siteSettings.TmdbReverseProxy}
+              onChange={(e) =>
+                setSiteSettings((prev) => ({
+                  ...prev,
+                  TmdbReverseProxy: e.target.value,
+                }))
+              }
+              className='w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100'
+            />
+          </div>
+        )}
+
+        <button
+          type='button'
+          onClick={() =>
+            withLoading('testTmdb', async () => {
+              const resp = await fetch('/api/admin/tmdb/test', {
+                cache: 'no-store',
+              });
+              const data = await resp.json().catch(() => ({}));
+              if (!resp.ok) {
+                throw new Error(data.error || 'TMDB 连通性测试失败');
+              }
+              showSuccess('TMDB 连通性测试通过', showAlert);
+            }).catch((err) => {
+              showError(
+                err instanceof Error ? err.message : 'TMDB 连通性测试失败',
+                showAlert,
+              );
+            })
+          }
+          disabled={isLoading('testTmdb')}
+          className='inline-flex items-center px-3 py-2 rounded-lg text-sm bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-60'
+        >
+          {isLoading('testTmdb') ? '测试中...' : '测试 TMDB 连通性'}
+        </button>
       </div>
 
       {/* 搜索接口可拉取最大页数 */}
@@ -5607,6 +5990,72 @@ const SiteConfigComponent = ({
         </div>
         <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
           启用后搜索结果将实时流式返回，提升用户体验。
+        </p>
+      </div>
+
+      {/* 搜索结果加载方式 */}
+      <div>
+        <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
+          搜索结果加载方式
+        </label>
+        <div className='inline-flex rounded-lg border border-gray-300 bg-white p-1 dark:border-gray-600 dark:bg-gray-800'>
+          {[
+            { value: 'infinite' as const, label: '触底加载' },
+            { value: 'pagination' as const, label: '分页显示' },
+          ].map((option) => (
+            <button
+              key={option.value}
+              type='button'
+              onClick={() =>
+                setSiteSettings((prev) => ({
+                  ...prev,
+                  SearchResultLoadMode: option.value,
+                }))
+              }
+              className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+                siteSettings.SearchResultLoadMode === option.value
+                  ? 'bg-green-600 text-white shadow-sm'
+                  : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+        <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
+          触底加载会随着下滑继续追加结果；分页显示则通过上一页/下一页切换。
+        </p>
+      </div>
+
+      {/* 广告过滤总开关（独立于其他 SiteConfig，立即保存） */}
+      <div>
+        <div className='flex items-center justify-between'>
+          <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
+            启用 m3u8 广告过滤
+          </label>
+          <button
+            type='button'
+            onClick={handleToggleAdFilterGlobal}
+            disabled={adFilterSaving}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 ${
+              adFilterEnabled ? buttonStyles.toggleOn : buttonStyles.toggleOff
+            } ${adFilterSaving ? 'opacity-50 cursor-not-allowed' : ''}`}
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full ${
+                buttonStyles.toggleThumb
+              } transition-transform ${
+                adFilterEnabled
+                  ? buttonStyles.toggleThumbOn
+                  : buttonStyles.toggleThumbOff
+              }`}
+            />
+          </button>
+        </div>
+        <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
+          自动识别并删除 CMS 资源站 m3u8 中由 #EXT-X-DISCONTINUITY
+          拼接的广告分段。
+          关掉后所有源直连上游，不再走过滤代理。可在视频源列表里对单个源单独豁免。
         </p>
       </div>
 
@@ -5724,6 +6173,24 @@ const LiveSourceConfig = ({
     disabled: false,
     from: 'custom',
   });
+  const [importExportModal, setImportExportModal] = useState<{
+    isOpen: boolean;
+    mode: 'import' | 'export' | 'result';
+    result?: {
+      success: number;
+      failed: number;
+      skipped: number;
+      details: Array<{
+        name: string;
+        key: string;
+        status: 'success' | 'failed' | 'skipped';
+        reason?: string;
+      }>;
+    };
+  }>({
+    isOpen: false,
+    mode: 'import',
+  });
 
   // dnd-kit 传感器
   const sensors = useSensors(
@@ -5818,16 +6285,24 @@ const LiveSourceConfig = ({
   };
 
   // 通用 API 请求
-  const callLiveSourceApi = async (body: Record<string, any>) => {
+  const callLiveSourceApi = async (
+    body: Record<string, any>,
+    options?: {
+      skipRefresh?: boolean;
+      skipLocalSuccessToast?: boolean;
+    },
+  ) => {
     // 本地模式：直接更新配置，不调用 API
     if (storageMode === 'local') {
       updateLiveConfigLocally(body.action, body);
-      showAlert({
-        type: 'success',
-        title: '操作成功',
-        message: '配置已保存到本地',
-        timer: 2000,
-      });
+      if (!options?.skipLocalSuccessToast) {
+        showAlert({
+          type: 'success',
+          title: '操作成功',
+          message: '配置已保存到本地',
+          timer: 2000,
+        });
+      }
       return;
     }
 
@@ -5844,7 +6319,9 @@ const LiveSourceConfig = ({
       }
 
       // 成功后刷新配置
-      await refreshConfig();
+      if (!options?.skipRefresh) {
+        await refreshConfig();
+      }
     } catch (err) {
       showError(err instanceof Error ? err.message : '操作失败', showAlert);
       throw err; // 向上抛出方便调用处判断
@@ -5974,6 +6451,255 @@ const LiveSourceConfig = ({
       });
   };
 
+  const normalizeLiveImportData = (importData: unknown) => {
+    if (Array.isArray(importData)) {
+      return importData;
+    }
+
+    if (importData && typeof importData === 'object') {
+      const record = importData as Record<string, unknown>;
+      const liveMap =
+        record.lives &&
+        typeof record.lives === 'object' &&
+        !Array.isArray(record.lives)
+          ? (record.lives as Record<string, unknown>)
+          : record;
+
+      const items = Object.entries(liveMap)
+        .filter(([, value]) => value && typeof value === 'object')
+        .map(([key, value]) => ({
+          key,
+          ...(value as Record<string, unknown>),
+        }))
+        .filter((item) => 'name' in item || 'url' in item);
+
+      if (items.length > 0) {
+        return items;
+      }
+    }
+
+    throw new Error(
+      'JSON 格式错误：请使用数组格式，或配置文件格式 {"lives": {...}}',
+    );
+  };
+
+  const handleExportLiveSources = (
+    exportFormat: 'array' | 'config' = 'array',
+  ) => {
+    try {
+      if (liveSources.length === 0) {
+        showAlert({
+          type: 'warning',
+          title: '没有可导出的直播源',
+          message: '请先添加直播源后再导出',
+        });
+        return;
+      }
+
+      const now = new Date();
+      const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      let exportData: any;
+      let filename: string;
+
+      if (exportFormat === 'config') {
+        const lives: Record<
+          string,
+          {
+            name: string;
+            url: string;
+            ua?: string;
+            epg?: string;
+          }
+        > = {};
+
+        liveSources.forEach((source) => {
+          const liveItem: {
+            name: string;
+            url: string;
+            ua?: string;
+            epg?: string;
+          } = {
+            name: source.name,
+            url: source.url,
+          };
+          if (source.ua) {
+            liveItem.ua = source.ua;
+          }
+          if (source.epg) {
+            liveItem.epg = source.epg;
+          }
+          lives[source.key] = liveItem;
+        });
+
+        exportData = { lives };
+        filename = `live_config_${timestamp}.json`;
+      } else {
+        exportData = liveSources.map((source) => ({
+          name: source.name,
+          key: source.key,
+          url: source.url,
+          epg: source.epg || '',
+          ua: source.ua || '',
+          disabled: source.disabled || false,
+        }));
+        filename = `live_sources_${timestamp}.json`;
+      }
+
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+        type: 'application/json',
+      });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(url);
+
+      const formatText =
+        exportFormat === 'config' ? '配置文件格式' : '数组格式';
+      showAlert({
+        type: 'success',
+        title: '导出成功',
+        message: `已导出 ${liveSources.length} 个直播源（${formatText}）到 ${filename}`,
+        timer: 3000,
+      });
+
+      setImportExportModal({ isOpen: false, mode: 'export' });
+    } catch (err) {
+      showAlert({
+        type: 'error',
+        title: '导出失败',
+        message: err instanceof Error ? err.message : '未知错误',
+      });
+    }
+  };
+
+  const handleImportLiveSources = async (
+    file: File,
+    onProgress?: (current: number, total: number) => void,
+  ) => {
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const importItems = normalizeLiveImportData(parsed);
+
+      if (importItems.length === 0) {
+        throw new Error('文件中没有可导入的直播源数据');
+      }
+
+      const result = {
+        success: 0,
+        failed: 0,
+        skipped: 0,
+        details: [] as Array<{
+          name: string;
+          key: string;
+          status: 'success' | 'failed' | 'skipped';
+          reason?: string;
+        }>,
+      };
+
+      const existingKeys = new Set(liveSources.map((source) => source.key));
+      const total = importItems.length;
+
+      for (let i = 0; i < importItems.length; i++) {
+        const rawItem = importItems[i] as Record<string, unknown>;
+        if (onProgress) {
+          onProgress(i + 1, total);
+        }
+
+        const key = typeof rawItem.key === 'string' ? rawItem.key.trim() : '';
+        const name =
+          typeof rawItem.name === 'string' ? rawItem.name.trim() : '';
+        const url = typeof rawItem.url === 'string' ? rawItem.url.trim() : '';
+        const ua = typeof rawItem.ua === 'string' ? rawItem.ua.trim() : '';
+        const epg = typeof rawItem.epg === 'string' ? rawItem.epg.trim() : '';
+
+        if (!name || !key || !url) {
+          result.failed++;
+          result.details.push({
+            name: name || '未知',
+            key: key || '未知',
+            status: 'failed',
+            reason: '缺少必要字段（name、key 或 url）',
+          });
+          continue;
+        }
+
+        if (existingKeys.has(key)) {
+          result.skipped++;
+          result.details.push({
+            name,
+            key,
+            status: 'skipped',
+            reason: '该 key 已存在，跳过导入',
+          });
+          continue;
+        }
+
+        try {
+          await callLiveSourceApi(
+            {
+              action: 'add',
+              key,
+              name,
+              url,
+              ua,
+              epg,
+            },
+            {
+              skipRefresh: true,
+              skipLocalSuccessToast: true,
+            },
+          );
+
+          existingKeys.add(key);
+          result.success++;
+          result.details.push({
+            name,
+            key,
+            status: 'success',
+          });
+        } catch (err) {
+          result.failed++;
+          result.details.push({
+            name,
+            key,
+            status: 'failed',
+            reason: err instanceof Error ? err.message : '导入失败',
+          });
+        }
+      }
+
+      setImportExportModal({
+        isOpen: true,
+        mode: 'result',
+        result,
+      });
+
+      if (result.success > 0 && storageMode !== 'local') {
+        await refreshConfig();
+      }
+
+      return result;
+    } catch (err) {
+      showAlert({
+        type: 'error',
+        title: '导入失败',
+        message: err instanceof Error ? err.message : '文件解析失败',
+      });
+      setImportExportModal({ isOpen: false, mode: 'import' });
+      return {
+        success: 0,
+        failed: 0,
+        skipped: 0,
+        details: [],
+      };
+    }
+  };
+
   // 可拖拽行封装 (dnd-kit)
   const DraggableRow = ({ liveSource }: { liveSource: LiveDataSource }) => {
     const { attributes, listeners, setNodeRef, transform, transition } =
@@ -6096,11 +6822,33 @@ const LiveSourceConfig = ({
   return (
     <div className='space-y-6'>
       {/* 添加直播源表单 */}
-      <div className='flex items-center justify-between'>
+      <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4'>
         <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
           直播源列表
         </h4>
-        <div className='flex items-center space-x-2'>
+        <div className='flex flex-wrap items-center gap-2'>
+          <button
+            onClick={() =>
+              setImportExportModal({ isOpen: true, mode: 'import' })
+            }
+            className='px-3 py-1 text-sm rounded-lg transition-colors flex items-center space-x-1 bg-linear-to-r from-blue-600 to-cyan-500 hover:from-blue-700 hover:to-cyan-600 text-white'
+            title='从 JSON 文件导入直播源'
+          >
+            <Upload className='w-4 h-4' />
+            <span className='hidden sm:inline'>导入直播源</span>
+            <span className='sm:hidden'>导入</span>
+          </button>
+          <button
+            onClick={() =>
+              setImportExportModal({ isOpen: true, mode: 'export' })
+            }
+            className='px-3 py-1 text-sm rounded-lg transition-colors flex items-center space-x-1 bg-linear-to-r from-green-600 to-emerald-500 hover:from-green-700 hover:to-emerald-600 text-white'
+            title='导出所有直播源'
+          >
+            <Download className='w-4 h-4' />
+            <span className='hidden sm:inline'>导出直播源</span>
+            <span className='sm:hidden'>导出</span>
+          </button>
           <button
             onClick={handleRefreshLiveSources}
             disabled={isRefreshing || isLoading('refreshLiveSources')}
@@ -6398,6 +7146,25 @@ const LiveSourceConfig = ({
         timer={alertModal.timer}
         showConfirm={alertModal.showConfirm}
       />
+
+      {importExportModal.isOpen && (
+        <ImportExportModal
+          isOpen={importExportModal.isOpen}
+          mode={importExportModal.mode}
+          onClose={() =>
+            setImportExportModal({ isOpen: false, mode: 'import' })
+          }
+          onImport={handleImportLiveSources}
+          onExport={handleExportLiveSources}
+          result={importExportModal.result}
+          entityName='直播源'
+          arrayFormatDescription='用于"直播源配置"卡片的导入功能,支持批量导入直播源'
+          configFormatDescription='用于"配置文件"卡片,可直接粘贴到配置文件编辑器中的 lives 字段'
+          configFormatExample='{"lives": {...}}'
+          arrayFilenameHint='live_sources_YYYYMMDD_HHMMSS.json'
+          configFilenameHint='live_config_YYYYMMDD_HHMMSS.json'
+        />
+      )}
     </div>
   );
 };
@@ -8298,6 +9065,638 @@ const PanSouConfigComponent = ({
   );
 };
 
+interface PrivateLibraryConfigPanelProps {
+  config: AdminConfig | null;
+  refreshConfig: () => Promise<void>;
+}
+
+const createEmptyConnector = (): PrivateLibraryConnector => ({
+  id: `pl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+  name: '新连接',
+  displayName: '',
+  type: 'emby',
+  enabled: true,
+  serverUrl: '',
+  token: '',
+  alistToken: '',
+  username: '',
+  password: '',
+  rootPath: '/Media',
+  userId: '',
+  libraryFilter: [],
+  createdAt: Date.now(),
+  updatedAt: Date.now(),
+});
+
+interface PrivateLibraryScanStatus {
+  ok: boolean;
+  count: number;
+  error?: string;
+}
+
+function isValidHttpUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function validatePrivateConnector(
+  connector: PrivateLibraryConnector,
+): string | null {
+  const name = connector.name.trim() || '未命名连接';
+  const displayName = connector.displayName?.trim() || '';
+  const serverUrl = connector.serverUrl.trim();
+  const token = connector.token.trim();
+  const hasAccountPassword = Boolean(
+    connector.username?.trim() && connector.password?.trim(),
+  );
+
+  if (!serverUrl) {
+    return `${name}：服务器地址不能为空`;
+  }
+
+  if (!isValidHttpUrl(serverUrl)) {
+    return `${name}：服务器地址格式不正确`;
+  }
+
+  if (displayName.length > 32) {
+    return `${name}：显示名称不能超过 32 个字符`;
+  }
+
+  if (connector.type === 'openlist') {
+    if (!token && !hasAccountPassword) {
+      return `${name}：OpenList 需要填写 Token，或填写用户名和密码`;
+    }
+    return null;
+  }
+
+  if (connector.type === 'xiaoya') {
+    return null;
+  }
+
+  if (!token && !hasAccountPassword) {
+    return `${name}：Emby / Jellyfin 需要填写 API Key，或填写用户名和密码`;
+  }
+
+  return null;
+}
+
+const PrivateLibraryConfigPanel = ({
+  config,
+  refreshConfig,
+}: PrivateLibraryConfigPanelProps) => {
+  const { alertModal, showAlert, hideAlert } = useAlertModal();
+  const { isLoading, withLoading } = useLoadingState();
+
+  const [connectors, setConnectors] = useState<PrivateLibraryConnector[]>([]);
+  const [scanResult, setScanResult] = useState<
+    Record<string, PrivateLibraryScanStatus>
+  >({});
+
+  useEffect(() => {
+    setConnectors(config?.PrivateLibraryConfig?.connectors || []);
+  }, [config?.PrivateLibraryConfig?.connectors]);
+
+  const persistConnectors = async (
+    nextConnectors: PrivateLibraryConnector[],
+    options?: {
+      skipValidation?: boolean;
+      successMessage?: string;
+      errorMessage?: string;
+      rollback?: () => void;
+    },
+  ) => {
+    const validationError = options?.skipValidation
+      ? undefined
+      : nextConnectors
+          .filter((connector) => connector.enabled)
+          .map((connector) => validatePrivateConnector(connector))
+          .find(Boolean);
+
+    if (validationError) {
+      showError(validationError, showAlert);
+      return;
+    }
+
+    await withLoading('savePrivateLibraryConfig', async () => {
+      try {
+        const response = await fetch('/api/admin/private-library', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ connectors: nextConnectors }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.error || '保存失败');
+        }
+        await refreshConfig();
+        showSuccess(
+          options?.successMessage || '私人影库配置保存成功',
+          showAlert,
+        );
+      } catch (error) {
+        options?.rollback?.();
+        showError(
+          options?.errorMessage ||
+            `保存私人影库配置失败：${error instanceof Error ? error.message : '未知错误'}`,
+          showAlert,
+        );
+      }
+    });
+  };
+
+  const patchConnector = (
+    connectorId: string,
+    patch: Partial<PrivateLibraryConnector>,
+  ) => {
+    setConnectors((prev) =>
+      prev.map((item) =>
+        item.id === connectorId
+          ? {
+              ...item,
+              ...patch,
+              updatedAt: Date.now(),
+            }
+          : item,
+      ),
+    );
+  };
+
+  const handleAddConnector = () => {
+    if (connectors.length >= 3) {
+      showError('最多仅支持 3 个私人影库连接', showAlert);
+      return;
+    }
+    setConnectors((prev) => [...prev, createEmptyConnector()]);
+  };
+
+  const handleDeleteConnector = (connectorId: string) => {
+    const target = connectors.find((item) => item.id === connectorId);
+    const previousConnectors = connectors;
+    const previousScanResult = scanResult;
+    showAlert({
+      type: 'warning',
+      title: '删除连接',
+      message: `确定删除“${target?.name || '该连接'}”吗？此操作只会移除当前配置。`,
+      showConfirm: true,
+      confirmText: '删除',
+      cancelText: '取消',
+      onConfirm: () => {
+        const nextConnectors = previousConnectors.filter(
+          (item) => item.id !== connectorId,
+        );
+        const nextScanResult = { ...previousScanResult };
+        delete nextScanResult[connectorId];
+
+        setConnectors(nextConnectors);
+        setScanResult(nextScanResult);
+
+        void persistConnectors(nextConnectors, {
+          skipValidation: true,
+          successMessage: '私人影库连接已删除',
+          errorMessage: `删除私人影库连接失败：${target?.name || '该连接'} 未能删除`,
+          rollback: () => {
+            setConnectors(previousConnectors);
+            setScanResult(previousScanResult);
+          },
+        });
+      },
+    });
+  };
+
+  const handleSave = async () => {
+    await persistConnectors(connectors);
+  };
+
+  const handleTest = async (connector: PrivateLibraryConnector) => {
+    const validationError = validatePrivateConnector(connector);
+    if (validationError) {
+      showError(validationError, showAlert);
+      return;
+    }
+
+    await withLoading(`testPrivateConnector:${connector.id}`, async () => {
+      try {
+        const response = await fetch('/api/admin/private-library/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ connector }),
+        });
+        const data = (await response.json().catch(() => ({}))) as {
+          ok?: boolean;
+          detail?: string;
+          error?: string;
+        };
+        if (!response.ok || !data.ok) {
+          throw new Error(data.detail || data.error || '连接测试失败');
+        }
+        showSuccess(`${connector.name} 连接测试通过`, showAlert);
+      } catch (error) {
+        showError(
+          `${connector.name} 测试失败：${error instanceof Error ? error.message : '未知错误'}`,
+          showAlert,
+        );
+      }
+    });
+  };
+
+  const handleScan = async (connectorId?: string) => {
+    await withLoading(
+      connectorId
+        ? `scanPrivateConnector:${connectorId}`
+        : 'scanPrivateConnector:all',
+      async () => {
+        try {
+          const response = await fetch('/api/admin/private-library/scan', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(connectorId ? { connectorId } : {}),
+          });
+          const data = (await response.json().catch(() => ({}))) as {
+            ok?: boolean;
+            result?: Record<string, PrivateLibraryScanStatus>;
+            error?: string;
+          };
+          if (!response.ok || !data.ok || !data.result) {
+            throw new Error(data.error || '扫描失败');
+          }
+
+          setScanResult((prev) => ({ ...prev, ...data.result }));
+
+          const entries = Object.entries(data.result);
+          const failed = entries.filter(([, item]) => !item.ok);
+          const success = entries.filter(([, item]) => item.ok);
+
+          if (connectorId) {
+            const result = data.result[connectorId];
+            const name =
+              connectors.find((item) => item.id === connectorId)?.name ||
+              '当前连接';
+            if (result?.ok) {
+              showSuccess(
+                `${name} 扫描完成，发现 ${result.count} 个媒体文件`,
+                showAlert,
+              );
+            } else {
+              throw new Error(result?.error || '扫描失败');
+            }
+            return;
+          }
+
+          if (failed.length === 0) {
+            showSuccess('全部连接扫描完成，资源数量已更新', showAlert);
+            return;
+          }
+
+          if (success.length > 0) {
+            showAlert({
+              type: 'warning',
+              title: '扫描部分完成',
+              message: `成功 ${success.length} 个，失败 ${failed.length} 个。`,
+              showConfirm: true,
+            });
+            return;
+          }
+
+          throw new Error(
+            failed
+              .map(([id, item]) => {
+                const name =
+                  connectors.find((connector) => connector.id === id)?.name ||
+                  id;
+                return `${name}：${item.error || '扫描失败'}`;
+              })
+              .join('；'),
+          );
+        } catch (error) {
+          showError(
+            `扫描失败：${error instanceof Error ? error.message : '未知错误'}`,
+            showAlert,
+          );
+        }
+      },
+    );
+  };
+
+  return (
+    <div className='space-y-6'>
+      <div className='rounded-lg border border-blue-200 dark:border-blue-900/60 bg-blue-50 dark:bg-blue-900/10 p-4 flex items-center justify-between gap-3'>
+        <div>
+          <p className='text-sm font-semibold text-blue-900 dark:text-blue-200'>
+            私人影库连接
+          </p>
+          <p className='text-xs text-blue-700 dark:text-blue-300 mt-1'>
+            支持 OpenList / 小雅 Alist / Emby / Jellyfin，最多 3 个连接
+          </p>
+        </div>
+        <div className='flex items-center gap-2'>
+          <button
+            type='button'
+            onClick={handleAddConnector}
+            disabled={connectors.length >= 3}
+            className={
+              connectors.length >= 3
+                ? buttonStyles.disabledSmall
+                : buttonStyles.primarySmall
+            }
+          >
+            新增连接
+          </button>
+          <button
+            type='button'
+            onClick={() => handleScan()}
+            disabled={
+              isLoading('scanPrivateConnector:all') || connectors.length === 0
+            }
+            className={
+              isLoading('scanPrivateConnector:all') || connectors.length === 0
+                ? buttonStyles.disabledSmall
+                : buttonStyles.successSmall
+            }
+          >
+            全量扫描
+          </button>
+        </div>
+      </div>
+
+      {connectors.length === 0 && (
+        <div className='rounded-lg border border-dashed border-gray-300 dark:border-gray-700 p-6 text-center text-sm text-gray-500 dark:text-gray-400'>
+          暂无连接，点击“新增连接”开始配置
+        </div>
+      )}
+
+      {connectors.map((connector, index) => (
+        <div
+          key={connector.id}
+          className='bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden'
+        >
+          <div className='p-4 border-b border-gray-100 dark:border-gray-700/50 bg-gray-50/50 dark:bg-gray-800/50 flex items-center justify-between'>
+            <h4 className='text-sm font-semibold text-gray-900 dark:text-gray-100'>
+              连接 {index + 1}
+            </h4>
+            <div className='flex items-center gap-2'>
+              <button
+                type='button'
+                onClick={() => handleTest(connector)}
+                disabled={isLoading(`testPrivateConnector:${connector.id}`)}
+                className={
+                  isLoading(`testPrivateConnector:${connector.id}`)
+                    ? buttonStyles.disabledSmall
+                    : buttonStyles.secondarySmall
+                }
+              >
+                连通性测试
+              </button>
+              <button
+                type='button'
+                onClick={() => handleScan(connector.id)}
+                disabled={isLoading(`scanPrivateConnector:${connector.id}`)}
+                className={
+                  isLoading(`scanPrivateConnector:${connector.id}`)
+                    ? buttonStyles.disabledSmall
+                    : buttonStyles.successSmall
+                }
+              >
+                扫描
+              </button>
+              <button
+                type='button'
+                onClick={() => handleDeleteConnector(connector.id)}
+                className={buttonStyles.dangerSmall}
+              >
+                删除
+              </button>
+            </div>
+          </div>
+
+          <div className='p-4 grid grid-cols-1 md:grid-cols-2 gap-3'>
+            <input
+              type='text'
+              value={connector.name}
+              onChange={(event) =>
+                patchConnector(connector.id, { name: event.target.value })
+              }
+              placeholder='连接名称'
+              className='px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900/50 text-sm'
+            />
+
+            <input
+              type='text'
+              value={connector.displayName || ''}
+              onChange={(event) =>
+                patchConnector(connector.id, {
+                  displayName: event.target.value,
+                })
+              }
+              placeholder='显示名称（前端来源标签使用，可选）'
+              className='px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900/50 text-sm'
+            />
+
+            <select
+              value={connector.type}
+              onChange={(event) =>
+                patchConnector(connector.id, {
+                  type: event.target.value as PrivateLibraryConnector['type'],
+                  rootPath:
+                    event.target.value === 'xiaoya'
+                      ? '/'
+                      : connector.rootPath || '/Media',
+                })
+              }
+              className='px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900/50 text-sm'
+            >
+              <option value='openlist'>OpenList</option>
+              <option value='xiaoya'>小雅 Alist</option>
+              <option value='emby'>Emby</option>
+              <option value='jellyfin'>Jellyfin</option>
+            </select>
+
+            <input
+              type='text'
+              value={connector.serverUrl}
+              onChange={(event) =>
+                patchConnector(connector.id, { serverUrl: event.target.value })
+              }
+              placeholder='服务地址，例如 http://emby.example.com:8096'
+              className='md:col-span-2 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900/50 text-sm'
+            />
+
+            {connector.type !== 'xiaoya' ? (
+              <input
+                type='text'
+                value={connector.token}
+                onChange={(event) =>
+                  patchConnector(connector.id, { token: event.target.value })
+                }
+                placeholder='Token / API Key（可选）'
+                className='md:col-span-2 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900/50 text-sm font-mono'
+              />
+            ) : null}
+
+            <div className='md:col-span-2 text-xs text-gray-500 dark:text-gray-400'>
+              {connector.type === 'openlist'
+                ? 'OpenList 可使用 Token，部分部署也可尝试用户名 + 密码；服务地址里直接填写端口。'
+                : connector.type === 'xiaoya'
+                  ? '小雅 Alist 兼容 Alist API。可留空密码直接访问；如实例开启了访问密码，服务端会先登录并缓存 token。播放 .strm 文件时会实时刷新阿里云盘直链。'
+                  : 'Emby / Jellyfin 现已支持两种方式：API Key / Access Token，或用户名 + 密码登录。服务地址里直接填写端口，如 http://host:8096。UserId 仅用于播放进度回写，不填会尽量自动解析。'}
+            </div>
+
+            {connector.type === 'xiaoya' ? (
+              <input
+                type='password'
+                value={connector.password || ''}
+                onChange={(event) =>
+                  patchConnector(connector.id, {
+                    password: event.target.value,
+                  })
+                }
+                placeholder='访问密码（可选）'
+                className='px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900/50 text-sm'
+              />
+            ) : (
+              <>
+                <input
+                  type='text'
+                  value={connector.username || ''}
+                  onChange={(event) =>
+                    patchConnector(connector.id, {
+                      username: event.target.value,
+                    })
+                  }
+                  placeholder='用户名（选填）'
+                  className='px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900/50 text-sm'
+                />
+                <input
+                  type='password'
+                  value={connector.password || ''}
+                  onChange={(event) =>
+                    patchConnector(connector.id, {
+                      password: event.target.value,
+                    })
+                  }
+                  placeholder='密码（选填）'
+                  className='px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900/50 text-sm'
+                />
+              </>
+            )}
+
+            {connector.type === 'openlist' || connector.type === 'xiaoya' ? (
+              <input
+                type='text'
+                value={connector.rootPath || ''}
+                onChange={(event) =>
+                  patchConnector(connector.id, {
+                    rootPath:
+                      event.target.value ||
+                      (connector.type === 'xiaoya' ? '/' : '/Media'),
+                  })
+                }
+                placeholder={
+                  connector.type === 'xiaoya'
+                    ? '小雅根目录，例如 /电影'
+                    : 'OpenList 根目录，例如 /Media'
+                }
+                className='px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900/50 text-sm md:col-span-2'
+              />
+            ) : (
+              <>
+                <input
+                  type='text'
+                  value={connector.userId || ''}
+                  onChange={(event) =>
+                    patchConnector(connector.id, { userId: event.target.value })
+                  }
+                  placeholder='Emby/Jellyfin UserId（可选，用于已播放回写）'
+                  className='px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900/50 text-sm'
+                />
+                <input
+                  type='text'
+                  value={(connector.libraryFilter || []).join(', ')}
+                  onChange={(event) =>
+                    patchConnector(connector.id, {
+                      libraryFilter: event.target.value
+                        .split(',')
+                        .map((item) => item.trim())
+                        .filter(Boolean),
+                    })
+                  }
+                  placeholder='媒体库过滤（可选，逗号分隔）'
+                  className='px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900/50 text-sm'
+                />
+              </>
+            )}
+
+            <label className='md:col-span-2 inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300'>
+              <input
+                type='checkbox'
+                checked={connector.enabled}
+                onChange={(event) =>
+                  patchConnector(connector.id, {
+                    enabled: event.target.checked,
+                  })
+                }
+                className='rounded border-gray-300 text-blue-600 focus:ring-blue-500'
+              />
+              启用该连接
+            </label>
+
+            <div className='md:col-span-2 text-xs text-gray-500 dark:text-gray-400'>
+              {scanResult[connector.id] ? (
+                scanResult[connector.id]?.ok ? (
+                  <span>
+                    最近扫描结果：已扫描到{' '}
+                    {scanResult[connector.id]?.count ?? 0} 个媒体文件
+                  </span>
+                ) : (
+                  <span className='text-red-500 dark:text-red-400'>
+                    最近扫描结果：
+                    {scanResult[connector.id]?.error || '扫描失败'}
+                  </span>
+                )
+              ) : (
+                <span>尚未执行扫描</span>
+              )}
+            </div>
+          </div>
+        </div>
+      ))}
+
+      <div className='flex justify-end'>
+        <button
+          type='button'
+          onClick={handleSave}
+          disabled={isLoading('savePrivateLibraryConfig')}
+          className={
+            isLoading('savePrivateLibraryConfig')
+              ? buttonStyles.disabled
+              : buttonStyles.success
+          }
+        >
+          {isLoading('savePrivateLibraryConfig')
+            ? '保存中...'
+            : '保存私人影库配置'}
+        </button>
+      </div>
+
+      <AlertModal
+        isOpen={alertModal.isOpen}
+        onClose={hideAlert}
+        type={alertModal.type}
+        title={alertModal.title}
+        message={alertModal.message}
+        timer={alertModal.timer}
+        showConfirm={alertModal.showConfirm}
+        onConfirm={alertModal.onConfirm}
+        confirmText={alertModal.confirmText}
+        cancelText={alertModal.cancelText}
+      />
+    </div>
+  );
+};
+
 function AdminPageClient() {
   const router = useRouter();
   const { alertModal, showAlert, hideAlert } = useAlertModal();
@@ -8318,6 +9717,7 @@ function AdminPageClient() {
     configFile: false,
     danmuConfig: false,
     pansouConfig: false,
+    privateLibraryConfig: false,
     dataMigration: false,
   });
 
@@ -9389,6 +10789,20 @@ function AdminPageClient() {
               onToggle={() => toggleTab('pansouConfig')}
             >
               <PanSouConfigPanel
+                config={config}
+                refreshConfig={refreshConfigAfterMutation}
+              />
+            </CollapsibleTab>
+
+            <CollapsibleTab
+              title='私人影库配置'
+              icon={
+                <Video size={20} className='text-gray-600 dark:text-gray-400' />
+              }
+              isExpanded={expandedTabs.privateLibraryConfig}
+              onToggle={() => toggleTab('privateLibraryConfig')}
+            >
+              <PrivateLibraryConfigPanel
                 config={config}
                 refreshConfig={refreshConfigAfterMutation}
               />

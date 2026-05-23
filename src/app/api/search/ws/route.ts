@@ -6,6 +6,7 @@ import { getAuthInfoFromCookie, verifyApiAuth } from '@/lib/auth';
 import { toSimplified } from '@/lib/chinese';
 import { getAvailableApiSites, getConfig } from '@/lib/config';
 import { searchFromApi } from '@/lib/downstream';
+import { rewriteEpisodesForAdFilterMany } from '@/lib/episode-rewriter';
 import { rankSearchResults } from '@/lib/search-ranking';
 import { yellowWords } from '@/lib/yellow';
 
@@ -166,11 +167,15 @@ export async function GET(request: NextRequest) {
           completedSources++;
 
           if (!streamClosed) {
+            const rewrittenResults = await rewriteEpisodesForAdFilterMany(
+              filteredResults,
+              request,
+            );
             const sourceEvent = `data: ${JSON.stringify({
               type: 'source_result',
               source: site.key,
               sourceName: site.name,
-              results: filteredResults,
+              results: rewrittenResults,
               timestamp: Date.now(),
             })}\n\n`;
 

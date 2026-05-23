@@ -169,6 +169,7 @@ function LoginPageClient() {
   const [loading, setLoading] = useState(false);
   const [shouldAskUsername, setShouldAskUsername] = useState(false);
   const [registrationEnabled, setRegistrationEnabled] = useState(false);
+  const [authMode, setAuthMode] = useState<'password' | 'public'>('password');
   // 默认使用图片直链
   const [loginBackground, setLoginBackground] = useState<string>(
     'https://pan.yyds.nyc.mn/background.png',
@@ -183,6 +184,12 @@ function LoginPageClient() {
       .then((res) => res.json())
       .then((data) => {
         const storageType = data.StorageType;
+        const nextAuthMode = data.AuthMode === 'public' ? 'public' : 'password';
+        setAuthMode(nextAuthMode);
+        if (nextAuthMode === 'public') {
+          router.replace('/');
+          return;
+        }
         setShouldAskUsername(!!storageType && storageType !== 'localstorage');
         setRegistrationEnabled(
           data.EnableRegistration && storageType !== 'localstorage',
@@ -197,7 +204,7 @@ function LoginPageClient() {
         setShouldAskUsername(false);
         setRegistrationEnabled(false);
       });
-  }, []);
+  }, [router]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -280,64 +287,81 @@ function LoginPageClient() {
         <h1 className='tracking-tight text-center text-4xl font-extrabold mb-8 bg-clip-text neon-text neon-flicker'>
           {siteName}
         </h1>
-        <form onSubmit={handleSubmit} className='space-y-8'>
-          {shouldAskUsername && (
+        {authMode === 'public' ? (
+          <div className='space-y-4 text-center'>
+            <p className='text-sm text-gray-700 dark:text-gray-200'>
+              当前已开启免登录家庭模式
+            </p>
+            <button
+              type='button'
+              onClick={() => router.replace('/')}
+              className='inline-flex w-full justify-center rounded-lg bg-green-600 py-3 text-base font-semibold text-white shadow-lg transition-all duration-300 hover:brightness-110 disabled:opacity-50'
+            >
+              进入首页
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className='space-y-8'>
+            {shouldAskUsername && (
+              <div>
+                <label htmlFor='username' className='sr-only'>
+                  用户名
+                </label>
+                <input
+                  id='username'
+                  type='text'
+                  autoComplete='username'
+                  className='block w-full rounded-lg border-0 py-3 px-4 text-gray-900 dark:text-gray-100 shadow-sm ring-1 ring-white/60 dark:ring-white/20 placeholder:text-gray-500 dark:placeholder:text-gray-400 focus:ring-2 focus:ring-purple-500 focus:outline-none sm:text-base bg-white/60 dark:bg-zinc-800/60 backdrop-blur transition-all duration-300 hover:ring-purple-400 focus:shadow-lg focus:shadow-purple-500/25 login-input'
+                  placeholder='输入用户名'
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                />
+              </div>
+            )}
+
             <div>
-              <label htmlFor='username' className='sr-only'>
-                用户名
+              <label htmlFor='password' className='sr-only'>
+                密码
               </label>
               <input
-                id='username'
-                type='text'
-                autoComplete='username'
+                id='password'
+                type='password'
+                autoComplete='current-password'
                 className='block w-full rounded-lg border-0 py-3 px-4 text-gray-900 dark:text-gray-100 shadow-sm ring-1 ring-white/60 dark:ring-white/20 placeholder:text-gray-500 dark:placeholder:text-gray-400 focus:ring-2 focus:ring-purple-500 focus:outline-none sm:text-base bg-white/60 dark:bg-zinc-800/60 backdrop-blur transition-all duration-300 hover:ring-purple-400 focus:shadow-lg focus:shadow-purple-500/25 login-input'
-                placeholder='输入用户名'
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                placeholder='输入访问密码'
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
               />
             </div>
-          )}
 
-          <div>
-            <label htmlFor='password' className='sr-only'>
-              密码
-            </label>
-            <input
-              id='password'
-              type='password'
-              autoComplete='current-password'
-              className='block w-full rounded-lg border-0 py-3 px-4 text-gray-900 dark:text-gray-100 shadow-sm ring-1 ring-white/60 dark:ring-white/20 placeholder:text-gray-500 dark:placeholder:text-gray-400 focus:ring-2 focus:ring-purple-500 focus:outline-none sm:text-base bg-white/60 dark:bg-zinc-800/60 backdrop-blur transition-all duration-300 hover:ring-purple-400 focus:shadow-lg focus:shadow-purple-500/25 login-input'
-              placeholder='输入访问密码'
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </div>
+            {error && (
+              <p className='text-sm text-red-600 dark:text-red-400'>{error}</p>
+            )}
 
-          {error && (
-            <p className='text-sm text-red-600 dark:text-red-400'>{error}</p>
-          )}
+            {/* 登录按钮 */}
+            <button
+              type='submit'
+              disabled={
+                !password || loading || (shouldAskUsername && !username)
+              }
+              className='inline-flex w-full justify-center rounded-lg bg-linear-to-r from-purple-600 via-fuchsia-600 to-pink-600 py-3 text-base font-semibold text-white shadow-lg transition-all duration-300 hover:brightness-110 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-50 neon-pulse login-button'
+            >
+              {loading ? '登录中...' : '登录'}
+            </button>
 
-          {/* 登录按钮 */}
-          <button
-            type='submit'
-            disabled={!password || loading || (shouldAskUsername && !username)}
-            className='inline-flex w-full justify-center rounded-lg bg-linear-to-r from-purple-600 via-fuchsia-600 to-pink-600 py-3 text-base font-semibold text-white shadow-lg transition-all duration-300 hover:brightness-110 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-50 neon-pulse login-button'
-          >
-            {loading ? '登录中...' : '登录'}
-          </button>
-
-          {/* 注册链接 */}
-          {registrationEnabled && (
-            <div className='text-center'>
-              <Link
-                href='/register'
-                className='text-sm text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 transition-colors'
-              >
-                没有账号？立即注册
-              </Link>
-            </div>
-          )}
-        </form>
+            {/* 注册链接 */}
+            {registrationEnabled && (
+              <div className='text-center'>
+                <Link
+                  href='/register'
+                  className='text-sm text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 transition-colors'
+                >
+                  没有账号？立即注册
+                </Link>
+              </div>
+            )}
+          </form>
+        )}
       </div>
 
       {/* 版本信息显示 */}

@@ -2,6 +2,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
+import { getAuthMode, isPublicAdminAllowed } from '@/lib/auth-mode';
 import { getConfig } from '@/lib/config';
 import { CURRENT_VERSION } from '@/lib/version';
 
@@ -33,6 +34,8 @@ export async function GET(request: NextRequest) {
   const result = {
     SiteName: config.SiteConfig.SiteName,
     StorageType: process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage',
+    AuthMode: getAuthMode(),
+    PublicAllowAdmin: isPublicAdminAllowed(),
     Version: CURRENT_VERSION,
     EnableRegistration: process.env.NEXT_PUBLIC_ENABLE_REGISTRATION === 'true',
     // 🔒 成人内容过滤状态（新增）
@@ -41,6 +44,15 @@ export async function GET(request: NextRequest) {
     LoginBackground:
       config.SiteConfig.LoginBackground ||
       'https://pan.yyds.nyc.mn/background.png',
+    PrivateLibraryEnabled: Boolean(
+      config.PrivateLibraryConfig?.connectors?.some((item) => item.enabled),
+    ),
+    SearchResultLoadMode:
+      config.SiteConfig.SearchResultLoadMode === 'pagination'
+        ? 'pagination'
+        : 'infinite',
+    PlaybackProxyMode: process.env.NEXT_PUBLIC_PLAYBACK_PROXY_MODE || 'smart',
+    PlaybackMaxAutoSwitch: Number(process.env.PLAYBACK_MAX_AUTO_SWITCH) || 3,
     // 提供说明信息
     AdultFilterInfo: {
       enabled: adultFilterEnabled,

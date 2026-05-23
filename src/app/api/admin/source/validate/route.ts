@@ -3,183 +3,205 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { verifyApiAuth } from '@/lib/auth';
-import { getConfig } from '@/lib/config';
-import { API_CONFIG } from '@/lib/config';
+import { API_CONFIG, ApiSite, getConfig } from '@/lib/config';
 
 export const runtime = 'nodejs';
 
+type SourceValidationStatus = 'valid' | 'no_results' | 'invalid';
+
+interface SourceValidationPayload {
+  type: 'source_result' | 'source_error';
+  source: string;
+  status: SourceValidationStatus;
+  resultCount?: number;
+  message?: string;
+}
+
+const VALIDATION_TIMEOUT_MS =
+  Number(process.env.SOURCE_VALIDATE_TIMEOUT_MS) || 12000;
+const VALIDATION_CONCURRENCY =
+  Number(process.env.SOURCE_VALIDATE_CONCURRENCY) || 6;
+
+function buildSearchUrl(apiBaseUrl: string, searchKeyword: string): string {
+  try {
+    const url = new URL(apiBaseUrl);
+    url.searchParams.set('ac', 'videolist');
+    url.searchParams.set('wd', searchKeyword);
+    return url.toString();
+  } catch {
+    const separator = apiBaseUrl.includes('?') ? '&' : '?';
+    return `${apiBaseUrl}${separator}ac=videolist&wd=${encodeURIComponent(
+      searchKeyword,
+    )}`;
+  }
+}
+
+async function readJson(response: Response): Promise<any> {
+  const text = await response.text();
+  const normalized = text.trim().replace(/^\uFEFF/, '');
+  if (!normalized) return null;
+  return JSON.parse(normalized);
+}
+
+async function validateSource(
+  site: ApiSite,
+  searchKeyword: string,
+): Promise<SourceValidationPayload> {
+  if (!site.api) {
+    return {
+      type: 'source_error',
+      source: site.key,
+      status: 'invalid',
+      message: '源地址为空',
+    };
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), VALIDATION_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(buildSearchUrl(site.api, searchKeyword), {
+      cache: 'no-store',
+      headers: API_CONFIG.search.headers,
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      return {
+        type: 'source_error',
+        source: site.key,
+        status: 'invalid',
+        message: `HTTP ${response.status}`,
+      };
+    }
+
+    const data = await readJson(response);
+    const list = Array.isArray(data?.list) ? data.list : [];
+
+    if (list.length === 0) {
+      return {
+        type: 'source_result',
+        source: site.key,
+        status: 'no_results',
+        resultCount: 0,
+        message: '无搜索结果',
+      };
+    }
+
+    return {
+      type: 'source_result',
+      source: site.key,
+      status: 'valid',
+      resultCount: list.length,
+      message: `搜索正常，返回 ${list.length} 条结果`,
+    };
+  } catch (error: any) {
+    const aborted =
+      error?.name === 'AbortError' ||
+      error?.code === 20 ||
+      error?.message?.includes('aborted');
+
+    return {
+      type: 'source_error',
+      source: site.key,
+      status: 'invalid',
+      message: aborted ? '请求超时' : error?.message || '连接失败',
+    };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function runWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>,
+) {
+  let nextIndex = 0;
+  const workerCount = Math.max(1, Math.min(concurrency, items.length));
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const item = items[nextIndex++];
+      await worker(item);
+    }
+  });
+  await Promise.allSettled(workers);
+}
+
 export async function GET(request: NextRequest) {
-  // 🔐 使用统一认证函数
   const authResult = verifyApiAuth(request);
 
-  // 认证失败（本地模式也允许访问）
   if (!authResult.isValid && !authResult.isLocalMode) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   const { searchParams } = new URL(request.url);
-  const searchKeyword = searchParams.get('q');
+  const searchKeyword = searchParams.get('q')?.trim();
 
   if (!searchKeyword) {
-    return new Response(JSON.stringify({ error: '搜索关键词不能为空' }), {
-      status: 400,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
+    return NextResponse.json({ error: '搜索关键词不能为空' }, { status: 400 });
   }
 
   const config = await getConfig();
-  const apiSites = config.SourceConfig;
+  const apiSites = Array.isArray(config.SourceConfig)
+    ? config.SourceConfig
+    : [];
 
-  // 共享状态
   let streamClosed = false;
+  const encoder = new TextEncoder();
 
-  // 创建可读流
   const stream = new ReadableStream({
     async start(controller) {
-      const encoder = new TextEncoder();
-
-      // 辅助函数：安全地向控制器写入数据
-      const safeEnqueue = (data: Uint8Array) => {
+      const safeSend = (payload: unknown) => {
+        if (streamClosed) return false;
         try {
-          if (
-            streamClosed ||
-            (!controller.desiredSize && controller.desiredSize !== 0)
-          ) {
-            return false;
-          }
-          controller.enqueue(data);
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify(payload)}\n\n`),
+          );
           return true;
         } catch (error) {
-          console.warn('Failed to enqueue data:', error);
+          console.warn('Failed to enqueue validation data:', error);
           streamClosed = true;
           return false;
         }
       };
 
-      // 发送开始事件
-      const startEvent = `data: ${JSON.stringify({
-        type: 'start',
-        totalSources: apiSites.length,
-      })}\n\n`;
-
-      if (!safeEnqueue(encoder.encode(startEvent))) {
-        return;
-      }
-
-      // 记录已完成的源数量
       let completedSources = 0;
+      const heartbeat = setInterval(() => {
+        safeSend({ type: 'ping' });
+      }, 15000);
 
-      // 为每个源创建验证 Promise
-      const validationPromises = apiSites.map(async (site) => {
-        try {
-          // 构建搜索URL，只获取第一页
-          const searchUrl = `${site.api}?ac=videolist&wd=${encodeURIComponent(searchKeyword)}`;
+      try {
+        safeSend({
+          type: 'start',
+          totalSources: apiSites.length,
+          concurrency: VALIDATION_CONCURRENCY,
+        });
 
-          // 设置超时控制
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-          try {
-            const response = await fetch(searchUrl, {
-              headers: API_CONFIG.search.headers,
-              signal: controller.signal,
-            });
-
-            clearTimeout(timeoutId);
-
-            if (!response.ok) {
-              throw new Error(`HTTP ${response.status}`);
-            }
-
-            const data = (await response.json()) as any;
-
-            // 检查结果是否有效
-            let status: 'valid' | 'no_results' | 'invalid';
-            if (
-              data &&
-              data.list &&
-              Array.isArray(data.list) &&
-              data.list.length > 0
-            ) {
-              // 检查是否有标题包含搜索词的结果
-              const validResults = data.list.filter((item: any) => {
-                const title = item.vod_name || '';
-                return title
-                  .toLowerCase()
-                  .includes(searchKeyword.toLowerCase());
-              });
-
-              if (validResults.length > 0) {
-                status = 'valid';
-              } else {
-                status = 'no_results';
-              }
-            } else {
-              status = 'no_results';
-            }
-
-            // 发送该源的验证结果
+        await runWithConcurrency(
+          apiSites,
+          VALIDATION_CONCURRENCY,
+          async (site) => {
+            const result = await validateSource(site, searchKeyword);
             completedSources++;
+            safeSend(result);
+          },
+        );
 
-            if (!streamClosed) {
-              const sourceEvent = `data: ${JSON.stringify({
-                type: 'source_result',
-                source: site.key,
-                status,
-              })}\n\n`;
-
-              if (!safeEnqueue(encoder.encode(sourceEvent))) {
-                streamClosed = true;
-                return;
-              }
-            }
-          } finally {
-            clearTimeout(timeoutId);
-          }
-        } catch (error) {
-          console.warn(`验证失败 ${site.name}:`, error);
-
-          // 发送源错误事件
-          completedSources++;
-
-          if (!streamClosed) {
-            const errorEvent = `data: ${JSON.stringify({
-              type: 'source_error',
-              source: site.key,
-              status: 'invalid',
-            })}\n\n`;
-
-            if (!safeEnqueue(encoder.encode(errorEvent))) {
-              streamClosed = true;
-              return;
-            }
+        safeSend({
+          type: 'complete',
+          completedSources,
+        });
+      } finally {
+        clearInterval(heartbeat);
+        if (!streamClosed) {
+          try {
+            controller.close();
+          } catch (error) {
+            console.warn('Failed to close validation stream:', error);
           }
         }
-
-        // 检查是否所有源都已完成
-        if (completedSources === apiSites.length) {
-          if (!streamClosed) {
-            // 发送最终完成事件
-            const completeEvent = `data: ${JSON.stringify({
-              type: 'complete',
-              completedSources,
-            })}\n\n`;
-
-            if (safeEnqueue(encoder.encode(completeEvent))) {
-              try {
-                controller.close();
-              } catch (error) {
-                console.warn('Failed to close controller:', error);
-              }
-            }
-          }
-        }
-      });
-
-      // 等待所有验证完成
-      await Promise.allSettled(validationPromises);
+      }
     },
 
     cancel() {
@@ -188,11 +210,10 @@ export async function GET(request: NextRequest) {
     },
   });
 
-  // 返回流式响应
   return new Response(stream, {
     headers: {
       'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
+      'Cache-Control': 'no-cache, no-transform',
       Connection: 'keep-alive',
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET',

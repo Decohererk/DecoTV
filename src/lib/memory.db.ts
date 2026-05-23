@@ -9,7 +9,13 @@
  */
 
 import { AdminConfig } from './admin.types';
-import { Favorite, IStorage, PlayRecord, SkipConfig } from './types';
+import {
+  Favorite,
+  IStorage,
+  PlayRecord,
+  SkipConfig,
+  SkipPreset,
+} from './types';
 
 export class MemoryStorage implements IStorage {
   // 使用 Map 存储各类数据
@@ -19,6 +25,7 @@ export class MemoryStorage implements IStorage {
   private searchHistory: Map<string, string[]> = new Map();
   private adminConfig: AdminConfig | null = null;
   private skipConfigs: Map<string, Map<string, SkipConfig>> = new Map();
+  private skipPresets: Map<string, SkipPreset[]> = new Map();
 
   constructor() {
     console.log('[MemoryStorage] 内存存储已初始化（本地模式）');
@@ -132,6 +139,7 @@ export class MemoryStorage implements IStorage {
     this.favorites.delete(userName);
     this.searchHistory.delete(userName);
     this.skipConfigs.delete(userName);
+    this.skipPresets.delete(userName);
   }
 
   async getAllUsers(): Promise<string[]> {
@@ -229,6 +237,15 @@ export class MemoryStorage implements IStorage {
     return result;
   }
 
+  async getSkipPresets(userName: string): Promise<SkipPreset[]> {
+    const presets = this.skipPresets.get(userName) || [];
+    return [...presets];
+  }
+
+  async setSkipPresets(userName: string, presets: SkipPreset[]): Promise<void> {
+    this.skipPresets.set(userName, [...presets]);
+  }
+
   // ========== 数据清理 ==========
   async clearAllData(): Promise<void> {
     this.playRecords.clear();
@@ -237,6 +254,7 @@ export class MemoryStorage implements IStorage {
     this.searchHistory.clear();
     this.adminConfig = null;
     this.skipConfigs.clear();
+    this.skipPresets.clear();
     console.log('[MemoryStorage] 所有数据已清空');
   }
 }

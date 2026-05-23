@@ -6,6 +6,7 @@ import { getAuthInfoFromCookie, verifyApiAuth } from '@/lib/auth';
 import { toSimplified } from '@/lib/chinese';
 import { getAvailableApiSites, getCacheTime, getConfig } from '@/lib/config';
 import { searchFromApi } from '@/lib/downstream';
+import { rewriteEpisodesForAdFilterMany } from '@/lib/episode-rewriter';
 import { rankSearchResults } from '@/lib/search-ranking';
 import { yellowWords } from '@/lib/yellow';
 
@@ -144,8 +145,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ results: [] }, { status: 200 });
     }
 
+    const rewrittenResults = await rewriteEpisodesForAdFilterMany(
+      flattenedResults,
+      request,
+    );
+
     return NextResponse.json(
-      { results: flattenedResults, normalizedQuery },
+      { results: rewrittenResults, normalizedQuery },
       {
         headers: {
           'Cache-Control': `public, max-age=${cacheTime}, s-maxage=${cacheTime}`,

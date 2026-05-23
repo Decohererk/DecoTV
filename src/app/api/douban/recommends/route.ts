@@ -1,9 +1,13 @@
-/* eslint-disable @typescript-eslint/no-explicit-any,no-console */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getCacheTime } from '@/lib/config';
-import { fetchDoubanData } from '@/lib/douban';
+import {
+  fetchDoubanJson,
+  isDoubanFetchError,
+  resolveServerDoubanProxyConfig,
+} from '@/lib/douban-proxy';
 import { DoubanResult } from '@/lib/types';
 
 interface DoubanRecommendApiResponse {
@@ -92,10 +96,13 @@ export async function GET(request: NextRequest) {
   }
 
   const target = `${baseUrl}?${params.toString()}`;
-  console.log(target);
   try {
-    const doubanData =
-      await fetchDoubanData<DoubanRecommendApiResponse>(target);
+    const proxyConfig = await resolveServerDoubanProxyConfig(request);
+    const doubanResult = await fetchDoubanJson<DoubanRecommendApiResponse>(
+      target,
+      proxyConfig,
+    );
+    const doubanData = doubanResult.data;
     const list = doubanData.items
       .filter((item) => item.type == 'movie' || item.type == 'tv')
       .map((item) => ({
@@ -118,11 +125,19 @@ export async function GET(request: NextRequest) {
         'CDN-Cache-Control': `public, s-maxage=${cacheTime}`,
         'Vercel-CDN-Cache-Control': `public, s-maxage=${cacheTime}`,
         'Netlify-Vary': 'query',
+        'X-DecoTV-Douban-Provider': doubanResult.provider,
+        'X-DecoTV-Douban-Duration': doubanResult.durationMs.toString(),
       },
     });
   } catch (error) {
     return NextResponse.json(
-      { error: '获取豆瓣数据失败', details: (error as Error).message },
+      {
+        error: '获取豆瓣数据失败',
+        details: (error as Error).message,
+        providerAttempts: isDoubanFetchError(error)
+          ? error.attempts
+          : undefined,
+      },
       { status: 500 },
     );
   }

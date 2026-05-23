@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 'use client';
 
 import {
@@ -7,6 +5,7 @@ import {
   Clover,
   Film,
   Home,
+  Library,
   Menu,
   Radio,
   Search,
@@ -172,8 +171,11 @@ const Sidebar = ({ onToggle, activePath = '/' }: SidebarProps) => {
   ]);
 
   useEffect(() => {
-    const runtimeConfig = (window as any).RUNTIME_CONFIG;
-    if (runtimeConfig?.CUSTOM_CATEGORIES?.length > 0) {
+    const runtimeConfig = window.RUNTIME_CONFIG;
+    if (
+      Array.isArray(runtimeConfig?.CUSTOM_CATEGORIES) &&
+      runtimeConfig.CUSTOM_CATEGORIES.length > 0
+    ) {
       setMenuItems((prevItems) => [
         ...prevItems,
         {
@@ -182,6 +184,23 @@ const Sidebar = ({ onToggle, activePath = '/' }: SidebarProps) => {
           href: '/douban?type=custom',
         },
       ]);
+    }
+
+    if (runtimeConfig?.PRIVATE_LIBRARY_ENABLED) {
+      setMenuItems((prevItems) => {
+        if (prevItems.some((item) => item.href === '/my-library')) {
+          return prevItems;
+        }
+
+        return [
+          ...prevItems,
+          {
+            icon: Library,
+            label: '我的影库',
+            href: '/my-library',
+          },
+        ];
+      });
     }
   }, []);
 

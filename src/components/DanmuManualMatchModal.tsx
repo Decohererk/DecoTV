@@ -166,27 +166,27 @@ export default function DanmuManualMatchModal({
         className='fixed inset-0 z-1008 bg-black/65 backdrop-blur-sm'
         onClick={onClose}
       />
-      <div className='fixed left-1/2 top-1/2 z-1009 w-[min(96vw,1080px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-white/20 bg-slate-950/95 shadow-2xl'>
-        <div className='flex items-center justify-between border-b border-white/10 px-4 py-3 sm:px-5'>
+      <div className='fixed left-1/2 top-1/2 z-1009 w-[min(96vw,1080px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-slate-200 bg-white/95 shadow-2xl dark:border-white/20 dark:bg-slate-950/95'>
+        <div className='flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-white/10 sm:px-5'>
           <div>
-            <h2 className='text-base font-semibold text-white sm:text-lg'>
+            <h2 className='text-base font-semibold text-slate-900 dark:text-white sm:text-lg'>
               手动匹配弹幕
             </h2>
-            <p className='text-xs text-slate-400'>
+            <p className='text-xs text-slate-500 dark:text-slate-400'>
               搜索番剧并指定集数，立即覆盖当前弹幕
             </p>
           </div>
           <button
             type='button'
             onClick={onClose}
-            className='rounded-full p-2 text-slate-300 transition hover:bg-white/10 hover:text-white'
+            className='rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-white'
             aria-label='关闭手动匹配弹窗'
           >
             <X className='h-5 w-5' />
           </button>
         </div>
 
-        <div className='border-b border-white/10 px-4 py-3 sm:px-5'>
+        <div className='border-b border-slate-200 px-4 py-3 dark:border-white/10 sm:px-5'>
           <div className='flex flex-col gap-2 sm:flex-row'>
             <input
               type='text'
@@ -200,7 +200,7 @@ export default function DanmuManualMatchModal({
                 }
               }}
               placeholder='输入标题关键词，例如：猫和老鼠'
-              className='h-10 flex-1 rounded-lg border border-white/15 bg-slate-900/80 px-3 text-sm text-slate-100 outline-none transition focus:border-emerald-400'
+              className='h-10 flex-1 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 dark:border-white/15 dark:bg-slate-900/80 dark:text-slate-100 dark:focus:border-emerald-400'
             />
             <button
               type='button'
@@ -217,25 +217,29 @@ export default function DanmuManualMatchModal({
             </button>
           </div>
           {searching && (
-            <p className='mt-2 text-xs text-slate-400'>
+            <p className='mt-2 text-xs text-slate-500 dark:text-slate-400'>
               正在请求弹幕服务器，慢速节点可能需要 15-20 秒，请稍候...
             </p>
           )}
-          {error && <p className='mt-2 text-xs text-amber-300'>{error}</p>}
+          {error && (
+            <p className='mt-2 text-xs text-amber-700 dark:text-amber-300'>
+              {error}
+            </p>
+          )}
         </div>
 
         <div className='grid h-[min(78vh,620px)] grid-cols-1 gap-0 md:grid-cols-2'>
-          <div className='border-r border-white/10'>
-            <div className='border-b border-white/10 px-4 py-2 text-xs text-slate-400 sm:px-5'>
+          <div className='border-r border-slate-200 dark:border-white/10'>
+            <div className='border-b border-slate-200 px-4 py-2 text-xs text-slate-500 dark:border-white/10 dark:text-slate-400 sm:px-5'>
               搜索结果（选择正确番剧）
             </div>
             <div className='max-h-[40vh] overflow-y-auto p-3 sm:max-h-[calc(min(78vh,620px)-44px)] sm:p-4'>
               {searching && results.length === 0 ? (
-                <div className='rounded-lg border border-white/10 bg-white/5 p-4 text-center text-sm text-slate-300'>
+                <div className='rounded-lg border border-slate-200 bg-slate-50 p-4 text-center text-sm text-slate-500 dark:border-white/10 dark:bg-white/5 dark:text-slate-300'>
                   正在搜索...
                 </div>
               ) : results.length === 0 ? (
-                <div className='rounded-lg border border-dashed border-white/15 bg-white/5 p-4 text-center text-sm text-slate-300'>
+                <div className='rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-center text-sm text-slate-500 dark:border-white/15 dark:bg-white/5 dark:text-slate-300'>
                   暂无结果
                 </div>
               ) : (
@@ -247,11 +251,11 @@ export default function DanmuManualMatchModal({
                       onClick={() => setSelectedAnimeId(anime.animeId)}
                       className={`flex w-full items-center gap-3 rounded-lg border px-2.5 py-2.5 text-left transition ${
                         selectedAnimeId === anime.animeId
-                          ? 'border-emerald-400/70 bg-emerald-500/15'
-                          : 'border-white/10 bg-white/5 hover:bg-white/10'
+                          ? 'border-emerald-500/70 bg-emerald-50 dark:border-emerald-400/70 dark:bg-emerald-500/15'
+                          : 'border-slate-200 bg-white hover:bg-slate-50 dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10'
                       }`}
                     >
-                      <div className='relative h-14 w-10 overflow-hidden rounded bg-slate-800/80'>
+                      <div className='relative h-14 w-10 overflow-hidden rounded bg-slate-100 dark:bg-slate-800/80'>
                         {anime.imageUrl ? (
                           <ExternalImage
                             src={anime.imageUrl}
@@ -261,16 +265,16 @@ export default function DanmuManualMatchModal({
                             sizes='40px'
                           />
                         ) : (
-                          <div className='flex h-full w-full items-center justify-center text-[10px] text-slate-400'>
+                          <div className='flex h-full w-full items-center justify-center text-[10px] text-slate-400 dark:text-slate-400'>
                             无封面
                           </div>
                         )}
                       </div>
                       <div className='min-w-0 flex-1'>
-                        <p className='truncate text-sm font-medium text-white'>
+                        <p className='truncate text-sm font-medium text-slate-900 dark:text-white'>
                           {anime.animeTitle}
                         </p>
-                        <p className='mt-0.5 truncate text-xs text-slate-400'>
+                        <p className='mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400'>
                           {buildAnimeMeta(anime)}
                         </p>
                         <p className='mt-0.5 text-[11px] text-slate-500'>
@@ -285,14 +289,14 @@ export default function DanmuManualMatchModal({
           </div>
 
           <div className='flex min-h-0 flex-col'>
-            <div className='border-b border-white/10 px-4 py-2 text-xs text-slate-400 sm:px-5'>
+            <div className='border-b border-slate-200 px-4 py-2 text-xs text-slate-500 dark:border-white/10 dark:text-slate-400 sm:px-5'>
               {selectedAnime
                 ? `集数列表：${selectedAnime.animeTitle}`
                 : '集数列表'}
             </div>
             <div className='max-h-[38vh] overflow-y-auto p-3 sm:max-h-[calc(min(78vh,620px)-44px)] sm:p-4'>
               {!selectedAnime ? (
-                <div className='rounded-lg border border-dashed border-white/15 bg-white/5 p-4 text-center text-sm text-slate-300'>
+                <div className='rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-center text-sm text-slate-500 dark:border-white/15 dark:bg-white/5 dark:text-slate-300'>
                   请先选择左侧番剧
                 </div>
               ) : (
@@ -321,14 +325,14 @@ export default function DanmuManualMatchModal({
                         }}
                         className={`flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition ${
                           currentMark
-                            ? 'border-cyan-400/60 bg-cyan-500/10'
-                            : 'border-white/10 bg-white/5 hover:bg-white/10'
+                            ? 'border-cyan-500/60 bg-cyan-50 dark:border-cyan-400/60 dark:bg-cyan-500/10'
+                            : 'border-slate-200 bg-white hover:bg-slate-50 dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10'
                         } ${applyingEpisodeId !== null ? 'cursor-not-allowed opacity-70' : ''}`}
                       >
-                        <span className='truncate text-sm text-slate-100'>
+                        <span className='truncate text-sm text-slate-900 dark:text-slate-100'>
                           {ep.episodeTitle || `第${index + 1}集`}
                         </span>
-                        <span className='text-xs text-slate-400'>
+                        <span className='text-xs text-slate-500 dark:text-slate-400'>
                           {applying ? (
                             <span className='inline-flex items-center gap-1'>
                               <Loader2 className='h-3.5 w-3.5 animate-spin' />

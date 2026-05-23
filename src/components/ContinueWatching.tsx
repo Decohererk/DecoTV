@@ -1,7 +1,7 @@
 /* eslint-disable no-console */
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import type { PlayRecord } from '@/lib/db.client';
 import {
@@ -17,49 +17,66 @@ interface ContinueWatchingProps {
   className?: string;
 }
 
+function isPlayableHistoryKey(key: string): boolean {
+  if (key.startsWith('private:progress:')) {
+    return false;
+  }
+
+  const [source, id] = key.split('+');
+  return Boolean(source && id) && !source.startsWith('private-progress:');
+}
+
+function getProgress(record: PlayRecord): number {
+  if (record.total_time === 0) {
+    return 0;
+  }
+
+  return (record.play_time / record.total_time) * 100;
+}
+
+function parseKey(key: string): { source: string; id: string } {
+  const [source = '', id = ''] = key.split('+');
+  return { source, id };
+}
+
 export default function ContinueWatching({ className }: ContinueWatchingProps) {
   const [playRecords, setPlayRecords] = useState<
     (PlayRecord & { key: string })[]
   >([]);
   const [loading, setLoading] = useState(true);
-  const CONTINUE_WATCHING_LIMIT = 24;
-  const visiblePlayRecords = playRecords.slice(0, CONTINUE_WATCHING_LIMIT);
+  const visiblePlayRecords = playRecords.slice(0, 24);
 
-  // 处理播放记录数据更新的函数
-  const updatePlayRecords = (allRecords: Record<string, PlayRecord>) => {
-    // 将记录转换为数组并根据 save_time 由近到远排序
-    const recordsArray = Object.entries(allRecords).map(([key, record]) => ({
-      ...record,
-      key,
-    }));
+  const updatePlayRecords = useCallback(
+    (allRecords: Record<string, PlayRecord>) => {
+      const sortedRecords = Object.entries(allRecords)
+        .filter(([key]) => isPlayableHistoryKey(key))
+        .map(([key, record]) => ({
+          ...record,
+          key,
+        }))
+        .sort((left, right) => right.save_time - left.save_time);
 
-    // 按 save_time 降序排序（最新的在前面）
-    const sortedRecords = recordsArray.sort(
-      (a, b) => b.save_time - a.save_time,
-    );
-
-    setPlayRecords(sortedRecords);
-  };
+      setPlayRecords(sortedRecords);
+    },
+    [],
+  );
 
   useEffect(() => {
     const fetchPlayRecords = async () => {
       try {
         setLoading(true);
-
-        // 从缓存或API获取所有播放记录
         const allRecords = await getAllPlayRecords();
         updatePlayRecords(allRecords);
       } catch (error) {
-        console.error('获取播放记录失败:', error);
+        console.error('Failed to load play records:', error);
         setPlayRecords([]);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchPlayRecords();
+    void fetchPlayRecords();
 
-    // 监听播放记录更新事件
     const unsubscribe = subscribeToDataUpdates(
       'playRecordsUpdated',
       (newRecords: Record<string, PlayRecord>) => {
@@ -68,24 +85,11 @@ export default function ContinueWatching({ className }: ContinueWatchingProps) {
     );
 
     return unsubscribe;
-  }, []);
+  }, [updatePlayRecords]);
 
-  // 如果没有播放记录，则不渲染组件
   if (!loading && playRecords.length === 0) {
     return null;
   }
-
-  // 计算播放进度百分比
-  const getProgress = (record: PlayRecord) => {
-    if (record.total_time === 0) return 0;
-    return (record.play_time / record.total_time) * 100;
-  };
-
-  // 从 key 中解析 source 和 id
-  const parseKey = (key: string) => {
-    const [source, id] = key.split('+');
-    return { source, id };
-  };
 
   return (
     <section className={`mb-8 ${className || ''}`}>
@@ -107,18 +111,16 @@ export default function ContinueWatching({ className }: ContinueWatchingProps) {
       </div>
       <ScrollableRow>
         {loading
-          ? // 加载状态显示灰色占位数据
-            Array.from({ length: 6 }).map((_, index) => (
+          ? Array.from({ length: 6 }).map((_, index) => (
               <div key={index} className='min-w-24 w-24 sm:min-w-45 sm:w-44'>
                 <div className='relative aspect-2/3 w-full overflow-hidden rounded-lg bg-gray-200 animate-pulse dark:bg-gray-800'>
                   <div className='absolute inset-0 bg-gray-300 dark:bg-gray-700'></div>
                 </div>
-                <div className='mt-2 h-4 bg-gray-200 rounded animate-pulse dark:bg-gray-800'></div>
-                <div className='mt-1 h-3 bg-gray-200 rounded animate-pulse dark:bg-gray-800'></div>
+                <div className='mt-2 h-4 rounded bg-gray-200 animate-pulse dark:bg-gray-800'></div>
+                <div className='mt-1 h-3 rounded bg-gray-200 animate-pulse dark:bg-gray-800'></div>
               </div>
             ))
-          : // 显示真实数据
-            visiblePlayRecords.map((record) => {
+          : visiblePlayRecords.map((record) => {
               const { source, id } = parseKey(record.key);
               return (
                 <div
@@ -139,7 +141,7 @@ export default function ContinueWatching({ className }: ContinueWatchingProps) {
                     from='playrecord'
                     onDelete={() =>
                       setPlayRecords((prev) =>
-                        prev.filter((r) => r.key !== record.key),
+                        prev.filter((item) => item.key !== record.key),
                       )
                     }
                     type={record.total_episodes > 1 ? 'tv' : ''}

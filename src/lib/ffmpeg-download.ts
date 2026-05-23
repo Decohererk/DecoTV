@@ -45,12 +45,21 @@ interface InternalFfmpegJob extends FfmpegJobSnapshot {
   outputPath: string;
   process: ChildProcessWithoutNullStreams | null;
   stopReason: 'pause' | 'remove' | null;
+  requestHeaders?: FfmpegRequestHeaders;
+}
+
+interface FfmpegRequestHeaders {
+  referer?: string;
+  origin?: string;
+  userAgent?: string;
+  cookie?: string;
 }
 
 interface StartFfmpegDownloadInput {
   sourceUrl: string;
   title: string;
   fileNameHint?: string;
+  requestHeaders?: FfmpegRequestHeaders;
 }
 
 interface FfmpegOutputFile {
@@ -163,6 +172,34 @@ function sanitizeFileName(input: string): string {
     .slice(0, 80);
 }
 
+function normalizeHeaderValue(value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  if (!normalized || /[\r\n]/.test(normalized)) return undefined;
+  return normalized;
+}
+
+function buildFfmpegHttpInputArgs(
+  headers: FfmpegRequestHeaders | undefined,
+): string[] {
+  const userAgent = normalizeHeaderValue(headers?.userAgent);
+  const referer = normalizeHeaderValue(headers?.referer);
+  const origin = normalizeHeaderValue(headers?.origin);
+  const cookie = normalizeHeaderValue(headers?.cookie);
+
+  const args: string[] = [];
+  if (userAgent) {
+    args.push('-user_agent', userAgent);
+  }
+
+  const headerLines = ['Accept: */*'];
+  if (referer) headerLines.push(`Referer: ${referer}`);
+  if (origin) headerLines.push(`Origin: ${origin}`);
+  if (cookie) headerLines.push(`Cookie: ${cookie}`);
+
+  args.push('-headers', `${headerLines.join('\r\n')}\r\n`);
+  return args;
+}
+
 async function getOutputDir(): Promise<string> {
   const outputDir = getDefaultOutputDir();
   await fs.mkdir(outputDir, { recursive: true });
@@ -220,7 +257,10 @@ function parseProgressKV(line: string): [string, string] | null {
   return [key, value];
 }
 
-async function probeDurationSeconds(sourceUrl: string): Promise<number | null> {
+async function probeDurationSeconds(
+  sourceUrl: string,
+  requestHeaders?: FfmpegRequestHeaders,
+): Promise<number | null> {
   try {
     const { stdout } = await execFileAsync(
       getFfprobePath(),
@@ -231,6 +271,7 @@ async function probeDurationSeconds(sourceUrl: string): Promise<number | null> {
         'format=duration',
         '-of',
         'default=noprint_wrappers=1:nokey=1',
+        ...buildFfmpegHttpInputArgs(requestHeaders),
         sourceUrl,
       ],
       { timeout: 15_000, maxBuffer: 1024 * 1024 },
@@ -294,7 +335,10 @@ async function runQueuedJob(job: InternalFfmpegJob): Promise<void> {
   job.updatedAt = Date.now();
   job.stopReason = null;
 
-  job.durationSeconds = await probeDurationSeconds(job.sourceUrl);
+  job.durationSeconds = await probeDurationSeconds(
+    job.sourceUrl,
+    job.requestHeaders,
+  );
   job.updatedAt = Date.now();
 
   const args = [
@@ -303,6 +347,7 @@ async function runQueuedJob(job: InternalFfmpegJob): Promise<void> {
     '-loglevel',
     'error',
     '-y',
+    ...buildFfmpegHttpInputArgs(job.requestHeaders),
     '-i',
     job.sourceUrl,
     '-c',
@@ -480,6 +525,7 @@ export async function startFfmpegDownload(
     updatedAt: now,
     process: null,
     stopReason: null,
+    requestHeaders: input.requestHeaders,
   };
 
   getJobsMap().set(id, job);

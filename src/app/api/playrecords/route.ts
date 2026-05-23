@@ -9,43 +9,80 @@ import { PlayRecord } from '@/lib/types';
 
 export const runtime = 'nodejs';
 
-export async function GET(request: NextRequest) {
-  try {
-    // 使用统一的认证函数，支持本地模式和数据库模式
-    const authResult = verifyApiAuth(request);
-    if (!authResult.isValid) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+function isLegacyPrivateLibraryPlayRecordKey(key: string): boolean {
+  if (key.startsWith('private:progress:')) {
+    return true;
+  }
 
-    // 获取用户名（本地模式使用特殊标识）
-    const authInfo = getAuthInfoFromCookie(request);
-    const username =
-      authInfo?.username || (authResult.isLocalMode ? '__local__' : '');
+  const [source] = key.split('+');
+  return Boolean(source?.startsWith('private-progress:'));
+}
 
-    if (!username) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+function isPublicPlayRecordKey(key: string): boolean {
+  const [source, id] = key.split('+');
+  return Boolean(source && id) && !isLegacyPrivateLibraryPlayRecordKey(key);
+}
 
-    // 非本地模式时检查用户权限
-    if (!authResult.isLocalMode) {
-      const config = await getConfig();
-      if (username !== process.env.USERNAME) {
-        const user = config.UserConfig.Users.find(
-          (u) => u.username === username,
-        );
-        if (!user) {
-          return NextResponse.json({ error: '用户不存在' }, { status: 401 });
-        }
-        if (user.banned) {
-          return NextResponse.json({ error: '用户已被封禁' }, { status: 401 });
-        }
+async function resolveAuthorizedUsername(
+  request: NextRequest,
+): Promise<{ username: string } | NextResponse> {
+  const authResult = verifyApiAuth(request);
+  if (!authResult.isValid) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const authInfo = getAuthInfoFromCookie(request);
+  const username =
+    authResult.username ||
+    authInfo?.username ||
+    (authResult.isLocalMode ? '__local__' : '');
+
+  if (!username) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  if (!authResult.isLocalMode) {
+    const config = await getConfig();
+    if (username !== process.env.USERNAME) {
+      const user = config.UserConfig.Users.find(
+        (item) => item.username === username,
+      );
+      if (!user || user.banned) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
       }
     }
+  }
 
-    const records = await db.getAllPlayRecords(username);
-    return NextResponse.json(records, { status: 200 });
-  } catch (err) {
-    console.error('获取播放记录失败', err);
+  return { username };
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    const auth = await resolveAuthorizedUsername(request);
+    if (auth instanceof NextResponse) {
+      return auth;
+    }
+
+    const records = await db.getAllPlayRecords(auth.username);
+    const legacyKeys = Object.keys(records).filter(
+      (key) => !isPublicPlayRecordKey(key),
+    );
+
+    if (legacyKeys.length > 0) {
+      await Promise.all(
+        legacyKeys.map(async (key) => {
+          await db.deletePlayRecordByKey(auth.username, key);
+        }),
+      );
+    }
+
+    const publicRecords = Object.fromEntries(
+      Object.entries(records).filter(([key]) => isPublicPlayRecordKey(key)),
+    );
+
+    return NextResponse.json(publicRecords, { status: 200 });
+  } catch (error) {
+    console.error('Failed to load play records', error);
     return NextResponse.json(
       { error: 'Internal Server Error' },
       { status: 500 },
@@ -55,39 +92,16 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    // 使用统一的认证函数，支持本地模式和数据库模式
-    const authResult = verifyApiAuth(request);
-    if (!authResult.isValid) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const auth = await resolveAuthorizedUsername(request);
+    if (auth instanceof NextResponse) {
+      return auth;
     }
 
-    // 获取用户名（本地模式使用特殊标识）
-    const authInfo = getAuthInfoFromCookie(request);
-    const username =
-      authInfo?.username || (authResult.isLocalMode ? '__local__' : '');
-
-    if (!username) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    // 非本地模式时检查用户权限
-    if (!authResult.isLocalMode) {
-      const config = await getConfig();
-      if (username !== process.env.USERNAME) {
-        const user = config.UserConfig.Users.find(
-          (u) => u.username === username,
-        );
-        if (!user) {
-          return NextResponse.json({ error: '用户不存在' }, { status: 401 });
-        }
-        if (user.banned) {
-          return NextResponse.json({ error: '用户已被封禁' }, { status: 401 });
-        }
-      }
-    }
-
-    const body = await request.json();
-    const { key, record }: { key: string; record: PlayRecord } = body;
+    const body = (await request.json()) as {
+      key?: string;
+      record?: PlayRecord;
+    };
+    const { key, record } = body;
 
     if (!key || !record) {
       return NextResponse.json(
@@ -96,7 +110,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 验证播放记录数据
     if (!record.title || !record.source_name || record.index < 1) {
       return NextResponse.json(
         { error: 'Invalid record data' },
@@ -104,7 +117,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 从key中解析source和id
     const [source, id] = key.split('+');
     if (!source || !id) {
       return NextResponse.json(
@@ -113,16 +125,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const finalRecord = {
+    await db.savePlayRecord(auth.username, source, id, {
       ...record,
       save_time: record.save_time ?? Date.now(),
-    } as PlayRecord;
-
-    await db.savePlayRecord(username, source, id, finalRecord);
+    });
 
     return NextResponse.json({ success: true }, { status: 200 });
-  } catch (err) {
-    console.error('保存播放记录失败', err);
+  } catch (error) {
+    console.error('Failed to save play record', error);
     return NextResponse.json(
       { error: 'Internal Server Error' },
       { status: 500 },
@@ -132,66 +142,46 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    // 使用统一的认证函数，支持本地模式和数据库模式
-    const authResult = verifyApiAuth(request);
-    if (!authResult.isValid) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    // 获取用户名（本地模式使用特殊标识）
-    const authInfo = getAuthInfoFromCookie(request);
-    const username =
-      authInfo?.username || (authResult.isLocalMode ? '__local__' : '');
-
-    if (!username) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    // 非本地模式时检查用户权限
-    if (!authResult.isLocalMode) {
-      const config = await getConfig();
-      if (username !== process.env.USERNAME) {
-        const user = config.UserConfig.Users.find(
-          (u) => u.username === username,
-        );
-        if (!user) {
-          return NextResponse.json({ error: '用户不存在' }, { status: 401 });
-        }
-        if (user.banned) {
-          return NextResponse.json({ error: '用户已被封禁' }, { status: 401 });
-        }
-      }
+    const auth = await resolveAuthorizedUsername(request);
+    if (auth instanceof NextResponse) {
+      return auth;
     }
 
     const { searchParams } = new URL(request.url);
     const key = searchParams.get('key');
 
     if (key) {
-      // 如果提供了 key，删除单条播放记录
-      const [source, id] = key.split('+');
-      if (!source || !id) {
-        return NextResponse.json(
-          { error: 'Invalid key format' },
-          { status: 400 },
-        );
-      }
+      if (key.startsWith('private:progress:')) {
+        await db.deletePlayRecordByKey(auth.username, key);
+      } else {
+        const [source, id] = key.split('+');
+        if (!source || !id) {
+          return NextResponse.json(
+            { error: 'Invalid key format' },
+            { status: 400 },
+          );
+        }
 
-      await db.deletePlayRecord(username, source, id);
+        await db.deletePlayRecord(auth.username, source, id);
+      }
     } else {
-      // 未提供 key，则清空全部播放记录
-      // 目前 DbManager 没有对应方法，这里直接遍历删除
-      const all = await db.getAllPlayRecords(username);
+      const all = await db.getAllPlayRecords(auth.username);
       await Promise.all(
-        Object.keys(all).map(async (k) => {
-          const [s, i] = k.split('+');
-          if (s && i) await db.deletePlayRecord(username, s, i);
+        Object.keys(all).map(async (rawKey) => {
+          const [source, id] = rawKey.split('+');
+          if (source && id) {
+            await db.deletePlayRecord(auth.username, source, id);
+            return;
+          }
+
+          await db.deletePlayRecordByKey(auth.username, rawKey);
         }),
       );
     }
 
     return NextResponse.json({ success: true }, { status: 200 });
-  } catch (err) {
-    console.error('删除播放记录失败', err);
+  } catch (error) {
+    console.error('Failed to delete play record', error);
     return NextResponse.json(
       { error: 'Internal Server Error' },
       { status: 500 },

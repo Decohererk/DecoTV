@@ -18,10 +18,28 @@ type Action =
   | 'batch_disable'
   | 'batch_enable'
   | 'batch_delete'
-  | 'update_adult';
+  | 'update_adult'
+  | 'update_ad_filter';
 
 interface BaseBody {
   action?: Action;
+}
+
+function pickSourcePlaybackFields(body: Record<string, any>) {
+  const fields: Record<string, any> = {};
+  if (body.proxyStrategy) fields.proxyStrategy = body.proxyStrategy;
+  if (body.ua) fields.ua = body.ua;
+  if (body.referer) fields.referer = body.referer;
+  if (body.origin) fields.origin = body.origin;
+  if (body.headers && typeof body.headers === 'object') {
+    fields.headers = body.headers;
+  }
+  if (body.timeoutMs) fields.timeoutMs = Number(body.timeoutMs);
+  if (body.priority !== undefined) fields.priority = Number(body.priority);
+  if (body.regionHint) fields.regionHint = body.regionHint;
+  if (body.adult !== undefined) fields.adult = Boolean(body.adult);
+  if (body.disabledReason) fields.disabledReason = body.disabledReason;
+  return fields;
 }
 
 export async function POST(request: NextRequest) {
@@ -69,6 +87,7 @@ export async function POST(request: NextRequest) {
       'batch_enable',
       'batch_delete',
       'update_adult',
+      'update_ad_filter',
     ];
     if (!action || !ACTIONS.includes(action)) {
       return NextResponse.json({ error: '参数格式错误' }, { status: 400 });
@@ -108,6 +127,7 @@ export async function POST(request: NextRequest) {
           api,
           detail,
           is_adult: is_adult || false,
+          ...pickSourcePlaybackFields(body),
           from: 'custom',
           disabled: false,
         });
@@ -141,6 +161,19 @@ export async function POST(request: NextRequest) {
         if (!entry)
           return NextResponse.json({ error: '源不存在' }, { status: 404 });
         entry.is_adult = is_adult || false;
+        break;
+      }
+      case 'update_ad_filter': {
+        const { key, disable_ad_filter } = body as {
+          key?: string;
+          disable_ad_filter?: boolean;
+        };
+        if (!key)
+          return NextResponse.json({ error: '缺少 key 参数' }, { status: 400 });
+        const entry = adminConfig.SourceConfig.find((s) => s.key === key);
+        if (!entry)
+          return NextResponse.json({ error: '源不存在' }, { status: 404 });
+        entry.disable_ad_filter = !!disable_ad_filter;
         break;
       }
       case 'delete': {

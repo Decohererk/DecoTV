@@ -88,6 +88,66 @@ function normalizeOrigin(input: string | undefined): string | undefined {
   }
 }
 
+function getRequestOrigin(request: NextRequest): string {
+  const forwardedProto = request.headers
+    .get('x-forwarded-proto')
+    ?.split(',')[0]
+    .trim();
+  const forwardedHost = request.headers
+    .get('x-forwarded-host')
+    ?.split(',')[0]
+    .trim();
+  const protocol =
+    forwardedProto || request.nextUrl.protocol.replace(':', '') || 'http';
+  const host =
+    forwardedHost || request.headers.get('host') || request.nextUrl.host;
+  return `${protocol}://${host}`;
+}
+
+function shouldForwardSameOriginAuth(
+  request: NextRequest,
+  targetUrl: string,
+): boolean {
+  try {
+    const target = new URL(targetUrl);
+    if (target.origin !== getRequestOrigin(request)) {
+      return false;
+    }
+    return target.pathname.startsWith('/api/');
+  } catch {
+    return false;
+  }
+}
+
+function buildDockerInternalFetchUrl(
+  request: NextRequest,
+  targetUrl: string,
+): string {
+  if (process.env.DOCKER_ENV !== 'true') {
+    return targetUrl;
+  }
+
+  try {
+    const target = new URL(targetUrl);
+    if (
+      target.origin !== getRequestOrigin(request) ||
+      !target.pathname.startsWith('/api/')
+    ) {
+      return targetUrl;
+    }
+
+    const internal = new URL(target.toString());
+    internal.protocol = 'http:';
+    internal.hostname = '127.0.0.1';
+    internal.port = process.env.PORT || '3000';
+    internal.username = '';
+    internal.password = '';
+    return internal.toString();
+  } catch {
+    return targetUrl;
+  }
+}
+
 function toAbsoluteReferer(input: string | undefined): string | undefined {
   if (!input) return undefined;
   try {
@@ -166,6 +226,7 @@ function buildHeaderVariants(
 function buildRequestHeaders(
   request: NextRequest,
   options: {
+    targetUrl: string;
     userAgent?: string;
     playlist?: boolean;
     variant: HeaderVariant;
@@ -201,6 +262,18 @@ function buildRequestHeaders(
     headers.delete('Origin');
   }
 
+  if (shouldForwardSameOriginAuth(request, options.targetUrl)) {
+    const cookie = request.headers.get('cookie');
+    if (cookie) {
+      headers.set('Cookie', cookie);
+    }
+
+    const authorization = request.headers.get('authorization');
+    if (authorization) {
+      headers.set('Authorization', authorization);
+    }
+  }
+
   return headers;
 }
 
@@ -215,9 +288,11 @@ async function fetchUpstreamWithFallback(
   },
 ): Promise<{ response: Response | null; error: FetchAttemptError | null }> {
   let lastError: FetchAttemptError | null = null;
+  const fetchUrl = buildDockerInternalFetchUrl(request, targetUrl);
 
   for (const variant of options.variants) {
     const headers = buildRequestHeaders(request, {
+      targetUrl,
       userAgent: options.userAgent,
       playlist: options.playlist,
       variant,
@@ -228,7 +303,7 @@ async function fetchUpstreamWithFallback(
       const timeoutId = setTimeout(() => controller.abort(), options.timeoutMs);
       let response: Response;
       try {
-        response = await fetch(targetUrl, {
+        response = await fetch(fetchUrl, {
           method: 'GET',
           headers,
           signal: controller.signal,
@@ -318,11 +393,11 @@ export async function GET(request: NextRequest) {
 
   if (!response) {
     const upstreamStatus = error?.status && error.status > 0 ? error.status : 0;
-    return buildError(
-      502,
-      `Failed to fetch upstream resource (${upstreamStatus})`,
-      error?.details,
-    );
+    const message =
+      upstreamStatus === 401 || upstreamStatus === 403
+        ? `上游资源拒绝访问（${upstreamStatus}），已尝试自动补齐鉴权和防盗链请求头`
+        : `Failed to fetch upstream resource (${upstreamStatus})`;
+    return buildError(502, message, error?.details);
   }
 
   const headers = new Headers();
@@ -339,8 +414,18 @@ export async function GET(request: NextRequest) {
   );
   headers.set(
     'Access-Control-Expose-Headers',
-    'Content-Length, Content-Range, Accept-Ranges, Content-Type',
+    'Content-Length, Content-Range, Accept-Ranges, Content-Type, X-Upstream-Url',
   );
+
+  if (response.url) {
+    headers.set(
+      'X-Upstream-Url',
+      response.url ===
+        buildDockerInternalFetchUrl(request, parsedTarget.toString())
+        ? parsedTarget.toString()
+        : response.url,
+    );
+  }
 
   const contentLength = response.headers.get('content-length');
   if (contentLength) {

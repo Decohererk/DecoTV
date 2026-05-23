@@ -2,14 +2,26 @@
 
 import { db } from '@/lib/db';
 
-import { AdminConfig } from './admin.types';
+import { AdminConfig, SearchResultLoadMode } from './admin.types';
 import { getDefaultPanSouConfig, normalizePanSouConfig } from './pansou';
+import { normalizePrivateLibraryConfig } from './private-library-config';
 
 export interface ApiSite {
   key: string;
   api: string;
   name: string;
   detail?: string;
+  disable_ad_filter?: boolean;
+  proxyStrategy?: 'auto' | 'direct' | 'proxy' | 'manifest-only';
+  ua?: string;
+  referer?: string;
+  origin?: string;
+  headers?: Record<string, string>;
+  timeoutMs?: number;
+  priority?: number;
+  regionHint?: string;
+  adult?: boolean;
+  disabledReason?: string;
   is_adult?: boolean; // 标记是否为成人资源
 }
 
@@ -58,6 +70,12 @@ export const API_CONFIG = {
 // 在模块加载时根据环境决定配置来源
 let cachedConfig: AdminConfig;
 
+function getDefaultSearchResultLoadMode(): SearchResultLoadMode {
+  return process.env.NEXT_PUBLIC_SEARCH_RESULT_LOAD_MODE === 'pagination'
+    ? 'pagination'
+    : 'infinite';
+}
+
 function normalizeForComparison(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map((item) => normalizeForComparison(item));
@@ -73,6 +91,87 @@ function normalizeForComparison(value: unknown): unknown {
   }
 
   return value;
+}
+
+function isProbablyAdultSourceName(name?: string): boolean {
+  const value = (name || '').toLowerCase();
+  return (
+    value.includes('🔞') ||
+    value.includes('成人') ||
+    value.includes('福利') ||
+    value.includes('倫理') ||
+    value.includes('伦理') ||
+    value.includes('18+') ||
+    value.includes('adult') ||
+    value.includes('porn')
+  );
+}
+
+function sanitizeHeaders(headers: unknown): Record<string, string> | undefined {
+  if (!headers || typeof headers !== 'object' || Array.isArray(headers)) {
+    return undefined;
+  }
+
+  const entries = Object.entries(headers as Record<string, unknown>)
+    .filter(([, value]) => typeof value === 'string' && value.trim())
+    .map(([key, value]) => [key, String(value)] as const);
+
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function normalizeSourceExtra<T extends Partial<ApiSite>>(source: T): T {
+  if (
+    source.proxyStrategy &&
+    !['auto', 'direct', 'proxy', 'manifest-only'].includes(source.proxyStrategy)
+  ) {
+    delete source.proxyStrategy;
+  }
+
+  const timeoutMs = Number(source.timeoutMs);
+  if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
+    source.timeoutMs = Math.round(timeoutMs);
+  } else {
+    delete source.timeoutMs;
+  }
+
+  const priority = Number(source.priority);
+  if (Number.isFinite(priority)) {
+    source.priority = Math.round(priority);
+  } else {
+    delete source.priority;
+  }
+
+  const headers = sanitizeHeaders(source.headers);
+  if (headers) {
+    source.headers = headers;
+  } else {
+    delete source.headers;
+  }
+
+  if (source.adult !== undefined && source.is_adult === undefined) {
+    source.is_adult = Boolean(source.adult);
+  }
+  if (isProbablyAdultSourceName(source.name) && !source.is_adult) {
+    source.is_adult = true;
+    source.adult = true;
+  }
+  return source;
+}
+
+function copySourceExtra(source: Partial<ApiSite>): Partial<ApiSite> {
+  return normalizeSourceExtra({
+    disable_ad_filter: source.disable_ad_filter,
+    proxyStrategy: source.proxyStrategy,
+    ua: source.ua,
+    referer: source.referer,
+    origin: source.origin,
+    headers: sanitizeHeaders(source.headers),
+    timeoutMs: source.timeoutMs,
+    priority: source.priority,
+    regionHint: source.regionHint,
+    adult: source.adult,
+    disabledReason: source.disabledReason,
+  });
 }
 
 function isConfigConsistent(
@@ -146,6 +245,8 @@ export function refineConfig(adminConfig: AdminConfig): AdminConfig {
       existingSource.api = site.api;
       existingSource.detail = site.detail;
       existingSource.is_adult = site.is_adult || false;
+      Object.assign(existingSource, copySourceExtra(site));
+      normalizeSourceExtra(existingSource);
       existingSource.from = 'config';
     } else {
       // 如果不存在,创建新条目
@@ -154,7 +255,9 @@ export function refineConfig(adminConfig: AdminConfig): AdminConfig {
         name: site.name,
         api: site.api,
         detail: site.detail,
-        is_adult: site.is_adult || false,
+        is_adult:
+          site.is_adult || site.adult || isProbablyAdultSourceName(site.name),
+        ...copySourceExtra(site),
         from: 'config',
         disabled: false,
       });
@@ -279,16 +382,22 @@ async function getInitConfig(
       SearchDownstreamMaxPage:
         Number(process.env.NEXT_PUBLIC_SEARCH_MAX_PAGE) || 5,
       SiteInterfaceCacheTime: cfgFile.cache_time || 7200,
-      DoubanProxyType:
-        process.env.NEXT_PUBLIC_DOUBAN_PROXY_TYPE || 'cmliussss-cdn-tencent',
+      DoubanProxyType: process.env.NEXT_PUBLIC_DOUBAN_PROXY_TYPE || 'auto',
       DoubanProxy: process.env.NEXT_PUBLIC_DOUBAN_PROXY || '',
       DoubanImageProxyType:
-        process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY_TYPE ||
-        'cmliussss-cdn-tencent',
+        process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY_TYPE || 'auto',
       DoubanImageProxy: process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY || '',
+      TmdbProxyType: process.env.TMDB_REVERSE_PROXY
+        ? 'reverse'
+        : process.env.TMDB_PROXY
+          ? 'forward'
+          : 'direct',
+      TmdbProxy: process.env.TMDB_PROXY || '',
+      TmdbReverseProxy: process.env.TMDB_REVERSE_PROXY || '',
       DisableYellowFilter:
         process.env.NEXT_PUBLIC_DISABLE_YELLOW_FILTER === 'true',
       FluidSearch: process.env.NEXT_PUBLIC_FLUID_SEARCH !== 'false',
+      SearchResultLoadMode: getDefaultSearchResultLoadMode(),
     },
     UserConfig: {
       Users: [],
@@ -297,6 +406,19 @@ async function getInitConfig(
     CustomCategories: [],
     LiveConfig: [],
     PanSouConfig: getDefaultPanSouConfig(),
+    TMDBConfig: {
+      ApiKey: process.env.TMDB_API_KEY || '',
+      ProxyType: process.env.TMDB_REVERSE_PROXY
+        ? 'reverse'
+        : process.env.TMDB_PROXY
+          ? 'forward'
+          : 'direct',
+      Proxy: process.env.TMDB_PROXY || '',
+      ReverseProxy: process.env.TMDB_REVERSE_PROXY || '',
+    },
+    PrivateLibraryConfig: {
+      connectors: [],
+    },
   };
 
   // 补充用户信息
@@ -327,7 +449,9 @@ async function getInitConfig(
       name: site.name,
       api: site.api,
       detail: site.detail,
-      is_adult: site.is_adult || false,
+      is_adult:
+        site.is_adult || site.adult || isProbablyAdultSourceName(site.name),
+      ...copySourceExtra(site),
       from: 'config',
       disabled: false,
     });
@@ -384,16 +508,22 @@ export function getLocalModeConfig(): AdminConfig {
       SearchDownstreamMaxPage:
         Number(process.env.NEXT_PUBLIC_SEARCH_MAX_PAGE) || 5,
       SiteInterfaceCacheTime: 7200,
-      DoubanProxyType:
-        process.env.NEXT_PUBLIC_DOUBAN_PROXY_TYPE || 'cmliussss-cdn-tencent',
+      DoubanProxyType: process.env.NEXT_PUBLIC_DOUBAN_PROXY_TYPE || 'auto',
       DoubanProxy: process.env.NEXT_PUBLIC_DOUBAN_PROXY || '',
       DoubanImageProxyType:
-        process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY_TYPE ||
-        'cmliussss-cdn-tencent',
+        process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY_TYPE || 'auto',
       DoubanImageProxy: process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY || '',
+      TmdbProxyType: process.env.TMDB_REVERSE_PROXY
+        ? 'reverse'
+        : process.env.TMDB_PROXY
+          ? 'forward'
+          : 'direct',
+      TmdbProxy: process.env.TMDB_PROXY || '',
+      TmdbReverseProxy: process.env.TMDB_REVERSE_PROXY || '',
       DisableYellowFilter:
         process.env.NEXT_PUBLIC_DISABLE_YELLOW_FILTER === 'true',
       FluidSearch: process.env.NEXT_PUBLIC_FLUID_SEARCH !== 'false',
+      SearchResultLoadMode: getDefaultSearchResultLoadMode(),
     },
     UserConfig: {
       Users: [
@@ -408,6 +538,19 @@ export function getLocalModeConfig(): AdminConfig {
     CustomCategories: [],
     LiveConfig: [],
     PanSouConfig: getDefaultPanSouConfig(),
+    TMDBConfig: {
+      ApiKey: process.env.TMDB_API_KEY || '',
+      ProxyType: process.env.TMDB_REVERSE_PROXY
+        ? 'reverse'
+        : process.env.TMDB_PROXY
+          ? 'forward'
+          : 'direct',
+      Proxy: process.env.TMDB_PROXY || '',
+      ReverseProxy: process.env.TMDB_REVERSE_PROXY || '',
+    },
+    PrivateLibraryConfig: {
+      connectors: [],
+    },
   };
   return adminConfig;
 }
@@ -439,7 +582,56 @@ export async function getConfig(): Promise<AdminConfig> {
 }
 
 export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
+  if (!adminConfig.SiteConfig) {
+    adminConfig.SiteConfig = getLocalModeConfig().SiteConfig;
+  }
+
+  if (typeof adminConfig.SiteConfig.DoubanProxyType !== 'string') {
+    adminConfig.SiteConfig.DoubanProxyType =
+      process.env.NEXT_PUBLIC_DOUBAN_PROXY_TYPE || 'auto';
+  }
+
+  if (typeof adminConfig.SiteConfig.DoubanProxy !== 'string') {
+    adminConfig.SiteConfig.DoubanProxy =
+      process.env.NEXT_PUBLIC_DOUBAN_PROXY || '';
+  }
+
+  if (typeof adminConfig.SiteConfig.DoubanImageProxyType !== 'string') {
+    adminConfig.SiteConfig.DoubanImageProxyType =
+      process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY_TYPE || 'auto';
+  }
+
+  if (typeof adminConfig.SiteConfig.DoubanImageProxy !== 'string') {
+    adminConfig.SiteConfig.DoubanImageProxy =
+      process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY || '';
+  }
+
+  if (!adminConfig.SiteConfig.TmdbProxyType) {
+    adminConfig.SiteConfig.TmdbProxyType = process.env.TMDB_REVERSE_PROXY
+      ? 'reverse'
+      : process.env.TMDB_PROXY
+        ? 'forward'
+        : 'direct';
+  }
+
+  if (typeof adminConfig.SiteConfig.TmdbProxy !== 'string') {
+    adminConfig.SiteConfig.TmdbProxy = process.env.TMDB_PROXY || '';
+  }
+
+  if (typeof adminConfig.SiteConfig.TmdbReverseProxy !== 'string') {
+    adminConfig.SiteConfig.TmdbReverseProxy =
+      process.env.TMDB_REVERSE_PROXY || '';
+  }
+
   // 确保必要的属性存在和初始化
+  if (
+    adminConfig.SiteConfig.SearchResultLoadMode !== 'pagination' &&
+    adminConfig.SiteConfig.SearchResultLoadMode !== 'infinite'
+  ) {
+    adminConfig.SiteConfig.SearchResultLoadMode =
+      getDefaultSearchResultLoadMode();
+  }
+
   if (!adminConfig.UserConfig) {
     adminConfig.UserConfig = { Users: [] };
   }
@@ -461,6 +653,24 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
   if (!adminConfig.LiveConfig || !Array.isArray(adminConfig.LiveConfig)) {
     adminConfig.LiveConfig = [];
   }
+
+  if (!adminConfig.TMDBConfig || typeof adminConfig.TMDBConfig !== 'object') {
+    adminConfig.TMDBConfig = {
+      ApiKey: process.env.TMDB_API_KEY || '',
+      ProxyType: process.env.TMDB_REVERSE_PROXY
+        ? 'reverse'
+        : process.env.TMDB_PROXY
+          ? 'forward'
+          : 'direct',
+      Proxy: process.env.TMDB_PROXY || '',
+      ReverseProxy: process.env.TMDB_REVERSE_PROXY || '',
+    };
+  }
+
+  adminConfig.PrivateLibraryConfig = normalizePrivateLibraryConfig(
+    adminConfig.PrivateLibraryConfig,
+  );
+
   adminConfig.PanSouConfig = normalizePanSouConfig(adminConfig.PanSouConfig);
 
   // 站长变更自检
@@ -504,6 +714,7 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
       return false;
     }
     seenSourceKeys.add(source.key);
+    normalizeSourceExtra(source);
     return true;
   });
 
@@ -580,6 +791,8 @@ export async function getAvailableApiSites(user?: string): Promise<ApiSite[]> {
         api: s.api,
         detail: s.detail,
         is_adult: s.is_adult,
+        disable_ad_filter: s.disable_ad_filter,
+        ...copySourceExtra(s),
       }));
   }
 
@@ -606,6 +819,8 @@ export async function getAvailableApiSites(user?: string): Promise<ApiSite[]> {
           api: s.api,
           detail: s.detail,
           is_adult: s.is_adult,
+          disable_ad_filter: s.disable_ad_filter,
+          ...copySourceExtra(s),
         }));
     }
   }

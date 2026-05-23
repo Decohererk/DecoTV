@@ -75,18 +75,20 @@ function DownloadManagerModal({
         className='fixed inset-0 z-[1005] bg-black/55 backdrop-blur-sm'
         onClick={onClose}
       />
-      <div className='fixed left-1/2 top-1/2 z-[1006] w-[min(95vw,960px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-white/10 bg-slate-950/95 shadow-2xl'>
-        <div className='flex items-center justify-between border-b border-white/10 px-4 py-3 sm:px-6'>
+      <div className='fixed left-1/2 top-1/2 z-[1006] w-[min(95vw,960px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-slate-200 bg-white/95 shadow-2xl dark:border-white/10 dark:bg-slate-950/95'>
+        <div className='flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-white/10 sm:px-6'>
           <div>
-            <h2 className='text-lg font-semibold text-white'>下载管理</h2>
-            <p className='text-xs text-slate-400'>
+            <h2 className='text-lg font-semibold text-slate-900 dark:text-white'>
+              下载管理
+            </h2>
+            <p className='text-xs text-slate-500 dark:text-slate-400'>
               分片下载、断点续传、进度追踪
             </p>
           </div>
           <button
             type='button'
             onClick={onClose}
-            className='rounded-full p-2 text-slate-300 transition hover:bg-white/10 hover:text-white'
+            className='rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-white'
             aria-label='关闭下载管理'
           >
             <X className='h-5 w-5' />
@@ -95,7 +97,7 @@ function DownloadManagerModal({
 
         <div className='max-h-[70vh] overflow-y-auto p-4 sm:p-6'>
           {sortedTasks.length === 0 ? (
-            <div className='rounded-xl border border-dashed border-white/15 bg-white/5 p-8 text-center text-sm text-slate-300'>
+            <div className='rounded-xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-500 dark:border-white/15 dark:bg-white/5 dark:text-slate-300'>
               暂无下载任务
             </div>
           ) : (
@@ -112,17 +114,17 @@ function DownloadManagerModal({
                 return (
                   <div
                     key={task.id}
-                    className='rounded-xl border border-white/10 bg-white/5 p-3 sm:p-4'
+                    className='rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-white/10 dark:bg-white/5 sm:p-4'
                   >
                     <div className='flex flex-wrap items-start justify-between gap-3'>
                       <div className='min-w-0'>
-                        <p className='truncate text-sm font-medium text-slate-100 sm:text-base'>
+                        <p className='truncate text-sm font-medium text-slate-900 dark:text-slate-100 sm:text-base'>
                           {task.title}
                         </p>
-                        <div className='mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-300'>
+                        <div className='mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-300'>
                           <span>{statusLabel}</span>
                           {task.downloadChannel === 'ffmpeg' && (
-                            <span className='rounded border border-amber-300/35 bg-amber-500/15 px-1.5 py-0.5 text-[11px] text-amber-200'>
+                            <span className='rounded border border-amber-300/70 bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-700 dark:border-amber-300/35 dark:bg-amber-500/15 dark:text-amber-200'>
                               FFmpeg 转存
                             </span>
                           )}
@@ -147,7 +149,7 @@ function DownloadManagerModal({
                           <button
                             type='button'
                             onClick={() => onPause(task.id)}
-                            className='inline-flex items-center gap-1 rounded-lg border border-white/20 px-2 py-1 text-xs text-slate-100 transition hover:bg-white/10'
+                            className='inline-flex items-center gap-1 rounded-lg border border-slate-300 px-2 py-1 text-xs text-slate-700 transition hover:bg-slate-100 dark:border-white/20 dark:text-slate-100 dark:hover:bg-white/10'
                           >
                             <Pause className='h-3.5 w-3.5' />
                             暂停
@@ -157,7 +159,7 @@ function DownloadManagerModal({
                           <button
                             type='button'
                             onClick={() => onResume(task.id)}
-                            className='inline-flex items-center gap-1 rounded-lg border border-emerald-400/35 px-2 py-1 text-xs text-emerald-200 transition hover:bg-emerald-500/15'
+                            className='inline-flex items-center gap-1 rounded-lg border border-emerald-300/70 px-2 py-1 text-xs text-emerald-700 transition hover:bg-emerald-50 dark:border-emerald-400/35 dark:text-emerald-200 dark:hover:bg-emerald-500/15'
                           >
                             <Play className='h-3.5 w-3.5' />
                             继续
@@ -167,7 +169,7 @@ function DownloadManagerModal({
                           <button
                             type='button'
                             onClick={() => onRetry(task.id)}
-                            className='inline-flex items-center gap-1 rounded-lg border border-amber-400/35 px-2 py-1 text-xs text-amber-200 transition hover:bg-amber-500/15'
+                            className='inline-flex items-center gap-1 rounded-lg border border-amber-300/70 px-2 py-1 text-xs text-amber-700 transition hover:bg-amber-50 dark:border-amber-400/35 dark:text-amber-200 dark:hover:bg-amber-500/15'
                           >
                             <RefreshCcw className='h-3.5 w-3.5' />
                             重试
@@ -176,7 +178,7 @@ function DownloadManagerModal({
                         <button
                           type='button'
                           onClick={() => onRemove(task.id)}
-                          className='inline-flex items-center gap-1 rounded-lg border border-red-400/35 px-2 py-1 text-xs text-red-200 transition hover:bg-red-500/15'
+                          className='inline-flex items-center gap-1 rounded-lg border border-red-300/70 px-2 py-1 text-xs text-red-600 transition hover:bg-red-50 dark:border-red-400/35 dark:text-red-200 dark:hover:bg-red-500/15'
                         >
                           <Trash2 className='h-3.5 w-3.5' />
                           删除
@@ -184,7 +186,7 @@ function DownloadManagerModal({
                       </div>
                     </div>
 
-                    <div className='mt-3 h-2 overflow-hidden rounded-full bg-slate-800/80'>
+                    <div className='mt-3 h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800/80'>
                       <div
                         className={`h-full rounded-full transition-all duration-300 ${
                           isCompleted
@@ -195,24 +197,26 @@ function DownloadManagerModal({
                       />
                     </div>
 
-                    <div className='mt-2 flex items-center justify-between text-xs text-slate-400'>
+                    <div className='mt-2 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400'>
                       <span>{progress}%</span>
                       <span>
                         {task.status === 'merging' && (
-                          <span className='inline-flex items-center gap-1 text-cyan-200'>
+                          <span className='inline-flex items-center gap-1 text-cyan-700 dark:text-cyan-200'>
                             <Loader2 className='h-3.5 w-3.5 animate-spin' />
                             合并 {Math.min(100, Math.round(task.mergeProgress))}
                             %
                           </span>
                         )}
                         {task.status === 'completed' && (
-                          <span className='inline-flex items-center gap-1 text-emerald-200'>
+                          <span className='inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-200'>
                             <CheckCircle2 className='h-3.5 w-3.5' />
                             已导出
                           </span>
                         )}
                         {task.status === 'error' && task.error && (
-                          <span className='text-red-300'>{task.error}</span>
+                          <span className='text-red-600 dark:text-red-300'>
+                            {task.error}
+                          </span>
                         )}
                       </span>
                     </div>

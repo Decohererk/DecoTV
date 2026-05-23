@@ -119,7 +119,7 @@ export function GlobalCacheProvider({ children }: { children: ReactNode }) {
         fetchingRef.current.add(cacheKey);
 
         try {
-          const freshData = await fetchHomeDataFromAPI();
+          const freshData = await fetchHomeDataFromAPI(homeData);
           setHomeData(freshData);
           setHomeLastFetch(Date.now());
           globalCache.set(cacheKey, freshData, CACHE_TIME / 1000);
@@ -137,7 +137,7 @@ export function GlobalCacheProvider({ children }: { children: ReactNode }) {
       setHomeError(null);
 
       try {
-        const freshData = await fetchHomeDataFromAPI();
+        const freshData = await fetchHomeDataFromAPI(homeData || undefined);
         // 使用 flushSync 强制同步更新，避免批处理延迟
         flushSync(() => {
           setHomeData(freshData);
@@ -190,6 +190,24 @@ export function GlobalCacheProvider({ children }: { children: ReactNode }) {
       next.set(cacheKey, loading);
       return next;
     });
+  }, []);
+
+  useEffect(() => {
+    const handleDoubanProxyChanged = () => {
+      setHomeLastFetch(0);
+      setDoubanDataState(new Map());
+      setDoubanLoadingState(new Map());
+      globalCache.delete('home-page-data');
+      globalCache.deleteByPrefix('douban-');
+    };
+
+    window.addEventListener('doubanProxyChanged', handleDoubanProxyChanged);
+    return () => {
+      window.removeEventListener(
+        'doubanProxyChanged',
+        handleDoubanProxyChanged,
+      );
+    };
   }, []);
 
   // === 清除所有缓存 ===
@@ -264,7 +282,9 @@ export function useGlobalCache() {
 
 // ============ 辅助函数：并行获取首页数据 ============
 
-async function fetchHomeDataFromAPI(): Promise<HomePageData> {
+async function fetchHomeDataFromAPI(
+  previousData?: HomePageData | null,
+): Promise<HomePageData> {
   // 使用 Promise.allSettled 并行加载，任一失败不影响其他
   const results = await Promise.allSettled([
     getDoubanCategories({ kind: 'movie', category: '热门', type: '全部' }),
@@ -274,21 +294,34 @@ async function fetchHomeDataFromAPI(): Promise<HomePageData> {
   ]);
 
   const [moviesResult, tvResult, varietyResult, bangumiResult] = results;
+  const doubanFailures = [moviesResult, tvResult, varietyResult].filter(
+    (result) => result.status === 'rejected',
+  );
+
+  if (doubanFailures.length > 0 && typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('globalError', {
+        detail: { message: '部分豆瓣首页数据加载失败，已保留可用缓存' },
+      }),
+    );
+  }
 
   return {
     hotMovies:
       moviesResult.status === 'fulfilled' && moviesResult.value.code === 200
         ? moviesResult.value.list
-        : [],
+        : previousData?.hotMovies || [],
     hotTvShows:
       tvResult.status === 'fulfilled' && tvResult.value.code === 200
         ? tvResult.value.list
-        : [],
+        : previousData?.hotTvShows || [],
     hotVarietyShows:
       varietyResult.status === 'fulfilled' && varietyResult.value.code === 200
         ? varietyResult.value.list
-        : [],
+        : previousData?.hotVarietyShows || [],
     bangumiCalendar:
-      bangumiResult.status === 'fulfilled' ? bangumiResult.value : [],
+      bangumiResult.status === 'fulfilled'
+        ? bangumiResult.value
+        : previousData?.bangumiCalendar || [],
   };
 }

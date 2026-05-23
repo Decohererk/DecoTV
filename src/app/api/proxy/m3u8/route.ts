@@ -1,235 +1,261 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 import { NextResponse } from 'next/server';
 
 import { getConfig } from '@/lib/config';
-import { getBaseUrl, resolveUrl } from '@/lib/live';
+import { rewriteHlsManifest, verifyM3U8ProxySignature } from '@/lib/m3u8-proxy';
+import { isLikelyM3U8Content } from '@/lib/player/hls-utils';
+import { buildPlaybackRequestHeaders } from '@/lib/player/stream-health';
+import {
+  fetchWithValidatedRedirects,
+  validateProxyTargetUrl,
+} from '@/lib/proxy-security';
 
 export const runtime = 'nodejs';
 
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const url = searchParams.get('url');
-  const allowCORS = searchParams.get('allowCORS') === 'true';
-  const source = searchParams.get('decotv-source');
-  if (!url) {
-    return NextResponse.json({ error: 'Missing url' }, { status: 400 });
+const M3U8_CONTENT_TYPE = 'application/vnd.apple.mpegurl; charset=utf-8';
+const FETCH_TIMEOUT_MS = 12000;
+const MAX_PLAYLIST_BYTES = 2 * 1024 * 1024;
+const MAX_REDIRECTS = 3;
+
+function withCorsHeaders(headers: Headers) {
+  headers.set('Access-Control-Allow-Origin', '*');
+  headers.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  headers.set(
+    'Access-Control-Allow-Headers',
+    'Content-Type, Range, Origin, Accept',
+  );
+  headers.set(
+    'Access-Control-Expose-Headers',
+    [
+      'Content-Length',
+      'Content-Range',
+      'Accept-Ranges',
+      'Content-Type',
+      'X-DecoTV-Playback-Strategy',
+      'X-DecoTV-Source',
+      'X-DecoTV-Upstream-Status',
+      'X-DecoTV-Upstream-Duration',
+      'X-DecoTV-Error-Reason',
+    ].join(', '),
+  );
+}
+
+function jsonError(
+  error: string,
+  status: number,
+  extraHeaders?: Record<string, string>,
+) {
+  const headers = new Headers(extraHeaders);
+  withCorsHeaders(headers);
+  headers.set('X-DecoTV-Error-Reason', error);
+  return NextResponse.json({ error }, { status, headers });
+}
+
+function getRequestOrigin(req: Request) {
+  const requestUrl = new URL(req.url);
+  const forwardedProto = req.headers
+    .get('x-forwarded-proto')
+    ?.split(',')[0]
+    .trim();
+  const forwardedHost = req.headers
+    .get('x-forwarded-host')
+    ?.split(',')[0]
+    .trim();
+  const protocol = forwardedProto || requestUrl.protocol.replace(':', '');
+  const host = forwardedHost || req.headers.get('host') || requestUrl.host;
+  return `${protocol}://${host}`;
+}
+
+function shouldProxyAssets(searchParams: URLSearchParams): boolean {
+  const explicit =
+    searchParams.get('proxyAssets') ||
+    searchParams.get('proxySegments') ||
+    searchParams.get('assetProxy');
+  if (explicit !== null) {
+    return explicit === '1' || explicit === 'true' || explicit === 'yes';
   }
 
+  const env = process.env.PLAYBACK_PROXY_SEGMENTS;
+  return env === 'true' || env === '1';
+}
+
+async function readTextWithLimit(response: Response): Promise<string> {
+  const declaredLength = Number(response.headers.get('content-length'));
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_PLAYLIST_BYTES) {
+    throw new Error('Playlist too large');
+  }
+
+  if (!response.body) return '';
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let received = 0;
+  let text = '';
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    received += value.byteLength;
+    if (received > MAX_PLAYLIST_BYTES) {
+      await reader.cancel().catch(() => undefined);
+      throw new Error('Playlist too large');
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+
+  text += decoder.decode();
+  return text;
+}
+
+async function findSourceConfig(source: string | null) {
+  if (!source) return undefined;
   const config = await getConfig();
-  const liveSource = config.LiveConfig?.find((s: any) => s.key === source);
-  if (!liveSource) {
-    return NextResponse.json({ error: 'Source not found' }, { status: 404 });
-  }
-  const ua = liveSource.ua || 'AptvPlayer/1.4.10';
+  return (
+    config.SourceConfig?.find((item) => item.key === source) ||
+    config.LiveConfig?.find((item) => item.key === source)
+  );
+}
 
-  let response: Response | null = null;
-  let responseUsed = false;
+async function isLegacyLiveProxyAllowed(source: string | null) {
+  if (!source) return false;
+  const config = await getConfig();
+  return Boolean(config.LiveConfig?.some((item) => item.key === source));
+}
+
+export async function OPTIONS() {
+  const headers = new Headers();
+  withCorsHeaders(headers);
+  return new Response(null, { status: 204, headers });
+}
+
+export async function GET(request: Request) {
+  const startedAt = Date.now();
+  const { searchParams } = new URL(request.url);
+  const url = (searchParams.get('url') || '').trim();
+  const source =
+    searchParams.get('source') || searchParams.get('decotv-source') || null;
+  const referer = searchParams.get('referer') || undefined;
+  const signature = searchParams.get('sig');
+  const proxyAssets = shouldProxyAssets(searchParams);
+  const adFilter =
+    searchParams.get('adfilter') === 'false' ||
+    searchParams.get('adfilter') === '0'
+      ? false
+      : true;
+
+  if (!url) {
+    return jsonError('Missing url', 400);
+  }
+
+  const hasValidSignature = verifyM3U8ProxySignature(url, referer, signature);
+  const legacyLiveAllowed = await isLegacyLiveProxyAllowed(source);
+  if (!hasValidSignature && !legacyLiveAllowed) {
+    return jsonError('Invalid signature', 403);
+  }
 
   try {
-    const decodedUrl = decodeURIComponent(url);
+    await validateProxyTargetUrl(url);
+  } catch (error) {
+    return jsonError(
+      error instanceof Error ? error.message : 'Invalid url',
+      400,
+    );
+  }
 
-    response = await fetch(decodedUrl, {
-      cache: 'no-cache',
-      redirect: 'follow',
-      credentials: 'same-origin',
-      headers: {
-        'User-Agent': ua,
+  const sourceConfig = await findSourceConfig(source);
+  const headers = buildPlaybackRequestHeaders({
+    url,
+    sourceConfig,
+    userAgent: request.headers.get('user-agent') || undefined,
+    referer,
+  });
+
+  let upstream: Response;
+  try {
+    upstream = await fetchWithValidatedRedirects(
+      url,
+      {
+        cache: 'no-store',
+        headers,
+        method: 'GET',
       },
-    });
-
-    if (!response.ok) {
-      return NextResponse.json(
-        { error: 'Failed to fetch m3u8' },
-        { status: 500 },
-      );
-    }
-
-    const contentType = response.headers.get('Content-Type') || '';
-    // rewrite m3u8
-    if (
-      contentType.toLowerCase().includes('mpegurl') ||
-      contentType.toLowerCase().includes('octet-stream')
-    ) {
-      // 获取最终的响应URL（处理重定向后的URL）
-      const finalUrl = response.url;
-      const m3u8Content = await response.text();
-      responseUsed = true; // 标记 response 已被使用
-
-      // 使用最终的响应URL作为baseUrl，而不是原始的请求URL
-      const baseUrl = getBaseUrl(finalUrl);
-
-      // 重写 M3U8 内容
-      const modifiedContent = rewriteM3U8Content(
-        m3u8Content,
-        baseUrl,
-        request,
-        allowCORS,
-      );
-
-      const headers = new Headers();
-      headers.set('Content-Type', contentType);
-      headers.set('Access-Control-Allow-Origin', '*');
-      headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      headers.set(
-        'Access-Control-Allow-Headers',
-        'Content-Type, Range, Origin, Accept',
-      );
-      headers.set('Cache-Control', 'no-cache');
-      headers.set(
-        'Access-Control-Expose-Headers',
-        'Content-Length, Content-Range',
-      );
-      return new Response(modifiedContent, { headers });
-    }
-    // just proxy
-    const headers = new Headers();
-    headers.set(
-      'Content-Type',
-      response.headers.get('Content-Type') || 'application/vnd.apple.mpegurl',
+      { timeoutMs: FETCH_TIMEOUT_MS, maxRedirects: MAX_REDIRECTS },
     );
-    headers.set('Access-Control-Allow-Origin', '*');
-    headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    headers.set(
-      'Access-Control-Allow-Headers',
-      'Content-Type, Range, Origin, Accept',
+  } catch (error) {
+    return jsonError(
+      error instanceof Error ? error.message : 'Upstream fetch failed',
+      502,
+      {
+        'X-DecoTV-Playback-Strategy': proxyAssets
+          ? 'asset-proxy'
+          : 'manifest-proxy',
+        'X-DecoTV-Source': source || '',
+      },
     );
+  }
+
+  const responseHeadersBase = {
+    'X-DecoTV-Playback-Strategy': proxyAssets
+      ? 'asset-proxy'
+      : 'manifest-proxy',
+    'X-DecoTV-Source': source || '',
+    'X-DecoTV-Upstream-Status': String(upstream.status),
+    'X-DecoTV-Upstream-Duration': String(Date.now() - startedAt),
+  };
+
+  if (!upstream.ok) {
+    return jsonError('Upstream returned non-OK', 502, responseHeadersBase);
+  }
+
+  const contentType = upstream.headers.get('content-type') || '';
+  if (
+    !isLikelyM3U8Content(contentType, url) &&
+    !isLikelyM3U8Content(contentType, upstream.url)
+  ) {
+    const headers = new Headers(responseHeadersBase);
+    withCorsHeaders(headers);
+    headers.set('Content-Type', contentType || 'application/octet-stream');
     headers.set('Cache-Control', 'no-cache');
-    headers.set(
-      'Access-Control-Expose-Headers',
-      'Content-Length, Content-Range',
-    );
-
-    // 直接返回视频流
-    return new Response(response.body, {
-      status: 200,
+    return new Response(upstream.body, {
+      status: upstream.status,
       headers,
     });
-  } catch {
-    return NextResponse.json(
-      { error: 'Failed to fetch m3u8' },
-      { status: 500 },
+  }
+
+  let content: string;
+  try {
+    content = await readTextWithLimit(upstream);
+  } catch (error) {
+    return jsonError(
+      error instanceof Error ? error.message : 'Unable to read playlist',
+      502,
+      responseHeadersBase,
     );
-  } finally {
-    // 确保 response 被正确关闭以释放资源
-    if (response && !responseUsed) {
-      try {
-        response.body?.cancel();
-      } catch {
-        // 忽略关闭时的错误
-      }
-    }
-  }
-}
-
-function rewriteM3U8Content(
-  content: string,
-  baseUrl: string,
-  req: Request,
-  allowCORS: boolean,
-) {
-  // 从 referer 头提取协议信息
-  const referer = req.headers.get('referer');
-  let protocol = 'http';
-  if (referer) {
-    try {
-      const refererUrl = new URL(referer);
-      protocol = refererUrl.protocol.replace(':', '');
-    } catch {
-      // ignore
-    }
   }
 
-  const host = req.headers.get('host');
-  const proxyBase = `${protocol}://${host}/api/proxy`;
-
-  const lines = content.split('\n');
-  const rewrittenLines: string[] = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    let line = lines[i].trim();
-
-    // 处理 TS 片段 URL 和其他媒体文件
-    if (line && !line.startsWith('#')) {
-      const resolvedUrl = resolveUrl(baseUrl, line);
-      const proxyUrl = allowCORS
-        ? resolvedUrl
-        : `${proxyBase}/segment?url=${encodeURIComponent(resolvedUrl)}`;
-      rewrittenLines.push(proxyUrl);
-      continue;
-    }
-
-    // 处理 EXT-X-MAP 标签中的 URI
-    if (line.startsWith('#EXT-X-MAP:')) {
-      line = rewriteMapUri(line, baseUrl, proxyBase, allowCORS);
-    }
-
-    // 处理 EXT-X-KEY 标签中的 URI
-    // 注意：加密密钥通常需要走代理，因为可能存在跨域问题
-    if (line.startsWith('#EXT-X-KEY:')) {
-      line = rewriteKeyUri(line, baseUrl, proxyBase, allowCORS);
-    }
-
-    // 处理嵌套的 M3U8 文件 (EXT-X-STREAM-INF)
-    if (line.startsWith('#EXT-X-STREAM-INF:')) {
-      rewrittenLines.push(line);
-      // 下一行通常是 M3U8 URL
-      if (i + 1 < lines.length) {
-        i++;
-        const nextLine = lines[i].trim();
-        if (nextLine && !nextLine.startsWith('#')) {
-          const resolvedUrl = resolveUrl(baseUrl, nextLine);
-          // 嵌套的 M3U8 需要继续走代理以便处理其中的 URL
-          const proxyUrl = allowCORS
-            ? `${proxyBase}/m3u8?url=${encodeURIComponent(resolvedUrl)}&allowCORS=true`
-            : `${proxyBase}/m3u8?url=${encodeURIComponent(resolvedUrl)}`;
-          rewrittenLines.push(proxyUrl);
-        } else {
-          rewrittenLines.push(nextLine);
-        }
-      }
-      continue;
-    }
-
-    rewrittenLines.push(line);
+  if (!content.trimStart().startsWith('#EXTM3U')) {
+    return jsonError('Upstream is not an m3u8 playlist', 502, {
+      ...responseHeadersBase,
+      'X-DecoTV-Error-Reason': 'not-m3u8',
+    });
   }
 
-  return rewrittenLines.join('\n');
-}
+  const body = rewriteHlsManifest(content, {
+    requestOrigin: getRequestOrigin(request),
+    upstreamUrl: url,
+    finalUrl: upstream.url || url,
+    source,
+    referer,
+    proxyAssets,
+    adFilter,
+  });
 
-function rewriteMapUri(
-  line: string,
-  baseUrl: string,
-  proxyBase: string,
-  allowCORS: boolean,
-) {
-  const uriMatch = line.match(/URI="([^"]+)"/);
-  if (uriMatch) {
-    const originalUri = uriMatch[1];
-    const resolvedUrl = resolveUrl(baseUrl, originalUri);
-    const proxyUrl = allowCORS
-      ? resolvedUrl
-      : `${proxyBase}/segment?url=${encodeURIComponent(resolvedUrl)}`;
-    return line.replace(uriMatch[0], `URI="${proxyUrl}"`);
-  }
-  return line;
-}
+  const responseHeaders = new Headers(responseHeadersBase);
+  withCorsHeaders(responseHeaders);
+  responseHeaders.set('Content-Type', contentType || M3U8_CONTENT_TYPE);
+  responseHeaders.set('Cache-Control', 'no-cache, max-age=15');
+  responseHeaders.set('X-DecoTV-Proxy-Cache', 'miss');
 
-function rewriteKeyUri(
-  line: string,
-  baseUrl: string,
-  proxyBase: string,
-  allowCORS: boolean,
-) {
-  const uriMatch = line.match(/URI="([^"]+)"/);
-  if (uriMatch) {
-    const originalUri = uriMatch[1];
-    const resolvedUrl = resolveUrl(baseUrl, originalUri);
-    // 加密密钥即使在直连模式下也尝试直连，如果失败播放器会重试
-    const proxyUrl = allowCORS
-      ? resolvedUrl
-      : `${proxyBase}/key?url=${encodeURIComponent(resolvedUrl)}`;
-    return line.replace(uriMatch[0], `URI="${proxyUrl}"`);
-  }
-  return line;
+  return new Response(body, {
+    status: 200,
+    headers: responseHeaders,
+  });
 }

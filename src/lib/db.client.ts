@@ -15,7 +15,7 @@
  */
 
 import { getAuthInfoFromBrowserCookie } from './auth';
-import { SkipConfig } from './types';
+import { SkipConfig, SkipPreset } from './types';
 
 // 全局错误触发函数
 function triggerGlobalError(message: string) {
@@ -72,6 +72,7 @@ interface UserCacheStore {
 const PLAY_RECORDS_KEY = 'decotv_play_records';
 const FAVORITES_KEY = 'decotv_favorites';
 const SEARCH_HISTORY_KEY = 'decotv_search_history';
+const SKIP_PRESETS_KEY = 'decotv_skip_presets';
 
 // 缓存相关常量
 const CACHE_PREFIX = 'decotv_cache_';
@@ -83,10 +84,17 @@ const STORAGE_TYPE = (() => {
   const raw =
     (typeof window !== 'undefined' &&
       (window as any).RUNTIME_CONFIG?.STORAGE_TYPE) ||
+    (process.env.NEXT_PUBLIC_STORAGE_TYPE as
+      | 'localstorage'
+      | 'redis'
+      | 'upstash'
+      | 'kvrocks'
+      | undefined) ||
     (process.env.STORAGE_TYPE as
       | 'localstorage'
       | 'redis'
       | 'upstash'
+      | 'kvrocks'
       | undefined) ||
     'localstorage';
   return raw;
@@ -112,7 +120,14 @@ class HybridCacheManager {
    */
   private getCurrentUsername(): string | null {
     const authInfo = getAuthInfoFromBrowserCookie();
-    return authInfo?.username || null;
+    if (authInfo?.username) return authInfo.username;
+    if (
+      typeof window !== 'undefined' &&
+      window.RUNTIME_CONFIG?.AUTH_MODE === 'public'
+    ) {
+      return '__public_guest__';
+    }
+    return null;
   }
 
   /**
@@ -462,6 +477,9 @@ async function fetchWithAuth(
   if (!res.ok) {
     // 如果是 401 未授权，跳转到登录页面
     if (res.status === 401) {
+      if (window.RUNTIME_CONFIG?.AUTH_MODE === 'public') {
+        throw new Error(`请求 ${url} 未授权`);
+      }
       // 调用 logout 接口
       try {
         await fetch('/api/logout', {
@@ -1320,12 +1338,15 @@ export function getCacheStatus(): {
   }
 
   const authInfo = getAuthInfoFromBrowserCookie();
+  const isPublicMode =
+    typeof window !== 'undefined' &&
+    window.RUNTIME_CONFIG?.AUTH_MODE === 'public';
   return {
     hasPlayRecords: !!cacheManager.getCachedPlayRecords(),
     hasFavorites: !!cacheManager.getCachedFavorites(),
     hasSearchHistory: !!cacheManager.getCachedSearchHistory(),
     hasSkipConfigs: !!cacheManager.getCachedSkipConfigs(),
-    username: authInfo?.username || null,
+    username: authInfo?.username || (isPublicMode ? '__public_guest__' : null),
   };
 }
 
@@ -1647,5 +1668,63 @@ export async function deleteSkipConfig(
     console.error('删除跳过片头片尾配置失败:', err);
     triggerGlobalError('删除跳过片头片尾配置失败');
     throw err;
+  }
+}
+
+// ---------------- 跳过预设组相关 API ----------------
+
+export async function getSkipPresets(): Promise<SkipPreset[]> {
+  if (typeof window === 'undefined') {
+    return [];
+  }
+
+  if (STORAGE_TYPE !== 'localstorage') {
+    try {
+      return await fetchFromApi<SkipPreset[]>('/api/skip-presets');
+    } catch (err) {
+      console.error('获取跳过预设组失败:', err);
+      triggerGlobalError('获取跳过预设组失败');
+      return [];
+    }
+  }
+
+  try {
+    const raw = localStorage.getItem(SKIP_PRESETS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as SkipPreset[]) : [];
+  } catch (err) {
+    console.error('读取跳过预设组失败:', err);
+    triggerGlobalError('读取跳过预设组失败');
+    return [];
+  }
+}
+
+export async function saveSkipPresets(presets: SkipPreset[]): Promise<void> {
+  if (STORAGE_TYPE !== 'localstorage') {
+    try {
+      await fetchWithAuth('/api/skip-presets', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ presets }),
+      });
+    } catch (err) {
+      console.error('保存跳过预设组失败:', err);
+      triggerGlobalError('保存跳过预设组失败');
+    }
+    return;
+  }
+
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    localStorage.setItem(SKIP_PRESETS_KEY, JSON.stringify(presets));
+  } catch (err) {
+    console.error('本地保存跳过预设组失败:', err);
+    triggerGlobalError('本地保存跳过预设组失败');
   }
 }

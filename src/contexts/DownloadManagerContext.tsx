@@ -78,6 +78,11 @@ interface ProxyFetchOptions {
   playlist?: boolean;
 }
 
+interface PlaylistFetchResult {
+  text: string;
+  upstreamUrl?: string;
+}
+
 interface DownloadManagerContextValue {
   tasks: DownloadTask[];
   isManagerOpen: boolean;
@@ -156,11 +161,15 @@ function applyContainerExtension(fileName: string, ext: 'ts' | 'mp4'): string {
   return `${normalized}.${ext}`;
 }
 
-function isLikely403Error(error: unknown): boolean {
+function isLikelyAuthError(error: unknown): boolean {
   const message =
     error instanceof Error ? error.message : String(error || '').trim();
   if (!message) return false;
-  return /(^|[^\d])403([^\d]|$)/.test(message) || message.includes('(403)');
+  return (
+    /(^|[^\d])(401|403)([^\d]|$)/.test(message) ||
+    message.includes('(401)') ||
+    message.includes('(403)')
+  );
 }
 
 function formatDownloadError(error: unknown, fallback: string): string {
@@ -171,6 +180,14 @@ function formatDownloadError(error: unknown, fallback: string): string {
     return '浏览器可用存储空间不足，请删除部分下载任务后重试';
   }
   return message;
+}
+
+function shouldFallbackFfmpegToBrowser(error: unknown): boolean {
+  const message =
+    error instanceof Error ? error.message : String(error || '').trim();
+  return /仅支持 Docker\/VPS|当前环境不支持 FFmpeg|FFmpeg 不可用|ffmpeg binary unavailable|501/i.test(
+    message,
+  );
 }
 
 function buildProxyUrl(
@@ -247,6 +264,9 @@ async function requestFfmpegAction(
         sourceUrl: string;
         title: string;
         fileNameHint?: string;
+        referer?: string;
+        origin?: string;
+        ua?: string;
       }
     | {
         action: 'pause' | 'resume' | 'remove';
@@ -302,7 +322,7 @@ async function fetchFfmpegJob(jobId: string): Promise<FfmpegJobPayload | null> {
 async function fetchTextByProxy(
   targetUrl: string,
   options: ProxyFetchOptions = {},
-): Promise<string> {
+): Promise<PlaylistFetchResult> {
   const response = await fetch(
     buildProxyUrl(targetUrl, {
       referer: options.referer,
@@ -321,7 +341,21 @@ async function fetchTextByProxy(
     );
     throw new Error(details);
   }
-  return response.text();
+
+  const upstreamUrlRaw = response.headers.get('x-upstream-url') || undefined;
+  let upstreamUrl: string | undefined;
+  if (upstreamUrlRaw) {
+    try {
+      upstreamUrl = new URL(upstreamUrlRaw).toString();
+    } catch {
+      upstreamUrl = undefined;
+    }
+  }
+
+  return {
+    text: await response.text(),
+    upstreamUrl,
+  };
 }
 
 function parseByteRange(
@@ -384,7 +418,9 @@ async function parseM3U8Playlist(
     throw new Error('M3U8 嵌套层级过深');
   }
 
-  const text = await fetchTextByProxy(playlistUrl, options);
+  const playlist = await fetchTextByProxy(playlistUrl, options);
+  const text = playlist.text;
+  const baseUrl = playlist.upstreamUrl || playlistUrl;
   const lines = text
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -418,7 +454,7 @@ async function parseM3U8Playlist(
       } else if (line.startsWith('#EXT-X-MAP:')) {
         const uriMatch = line.match(/URI="([^"]+)"/i);
         if (uriMatch?.[1]) {
-          const resolvedMapUrl = new URL(uriMatch[1], playlistUrl).toString();
+          const resolvedMapUrl = new URL(uriMatch[1], baseUrl).toString();
           const mapByteRangeRaw = line.match(/BYTERANGE="([^"]+)"/i)?.[1];
           let rangeHeader: string | undefined;
           if (mapByteRangeRaw) {
@@ -445,7 +481,7 @@ async function parseM3U8Playlist(
       continue;
     }
 
-    const resolved = new URL(line, playlistUrl).toString();
+    const resolved = new URL(line, baseUrl).toString();
     if (waitingVariantUrl) {
       variants.push({ url: resolved, bandwidth: pendingBandwidth });
       waitingVariantUrl = false;
@@ -489,7 +525,7 @@ async function parseM3U8Playlist(
       try {
         return await parseM3U8Playlist(variant.url, depth + 1, {
           ...options,
-          referer: playlistUrl,
+          referer: baseUrl,
         });
       } catch (error) {
         lastError = error;
@@ -506,7 +542,7 @@ async function parseM3U8Playlist(
       try {
         return await parseM3U8Playlist(nestedUrl, depth + 1, {
           ...options,
-          referer: playlistUrl,
+          referer: baseUrl,
         });
       } catch (error) {
         lastError = error;
@@ -518,7 +554,7 @@ async function parseM3U8Playlist(
   }
 
   return {
-    playlistUrl,
+    playlistUrl: baseUrl,
     segmentUrls,
     segmentRanges,
     durationSeconds,
@@ -707,6 +743,9 @@ export function DownloadManagerProvider({ children }: { children: ReactNode }) {
         sourceUrl: task.sourceUrl,
         title: task.title,
         fileNameHint: task.fileName.replace(/\.[^.]+$/, ''),
+        referer: task.requestReferer,
+        origin: task.requestOrigin,
+        ua: task.requestUa,
       });
 
       if (!job) {
@@ -805,8 +844,8 @@ export function DownloadManagerProvider({ children }: { children: ReactNode }) {
         let pendingCursor = 0;
         let playlistRefreshPromise: Promise<void> | null = null;
         const refererCandidates = dedupeTruthy([
-          baseTask.playlistUrl,
           baseTask.requestReferer,
+          baseTask.playlistUrl,
           baseTask.sourceUrl,
         ]);
 
@@ -1001,7 +1040,7 @@ export function DownloadManagerProvider({ children }: { children: ReactNode }) {
                 }
 
                 if (
-                  isLikely403Error(lastError) &&
+                  isLikelyAuthError(lastError) &&
                   attempt < MAX_SEGMENT_RETRY
                 ) {
                   try {
@@ -1219,6 +1258,8 @@ export function DownloadManagerProvider({ children }: { children: ReactNode }) {
         requestReferer,
         requestOrigin,
         requestUa,
+        subscriptionId: request.subscriptionId,
+        episodeNumber: request.episodeNumber,
         status: isM3U8
           ? downloadChannel === 'ffmpeg'
             ? 'queued'
@@ -1237,22 +1278,45 @@ export function DownloadManagerProvider({ children }: { children: ReactNode }) {
       };
 
       upsertTask(task);
-      setIsManagerOpen(true);
+      if (request.openManager !== false) {
+        setIsManagerOpen(true);
+      }
 
       if (isM3U8) {
+        let activeTask = task;
+
         if (downloadChannel === 'ffmpeg') {
           try {
             await startFfmpegTask(id, task);
+            return id;
           } catch (error) {
-            patchTask(id, {
-              status: 'error',
-              error:
-                error instanceof Error
-                  ? error.message
-                  : 'FFmpeg 转存任务启动失败',
-            });
+            if (!shouldFallbackFfmpegToBrowser(error)) {
+              patchTask(id, {
+                status: 'error',
+                error:
+                  error instanceof Error
+                    ? error.message
+                    : 'FFmpeg 转存任务启动失败',
+              });
+              return id;
+            }
+
+            activeTask = {
+              ...task,
+              downloadChannel: 'browser',
+              status: 'parsing',
+              totalSegments: 0,
+              downloadedSegments: 0,
+              downloadedBytes: 0,
+              totalBytes: 0,
+              mergeProgress: 0,
+              speedBps: 0,
+              fileName: `${fileNameBase}.ts`,
+              error: '当前环境不支持 FFmpeg，已自动改用浏览器分片下载',
+              updatedAt: Date.now(),
+            };
+            upsertTask(activeTask);
           }
-          return id;
         }
 
         try {
@@ -1277,13 +1341,13 @@ export function DownloadManagerProvider({ children }: { children: ReactNode }) {
           }
 
           const preparedTask: DownloadTask = {
-            ...task,
+            ...activeTask,
             status: 'downloading',
             playlistUrl: parsed.playlistUrl,
             segmentUrls: parsed.segmentUrls,
             segmentRanges: parsed.segmentRanges,
             fileName: applyContainerExtension(
-              task.fileName,
+              activeTask.fileName,
               parsed.containerExtension,
             ),
             totalSegments: parsed.segmentUrls.length,

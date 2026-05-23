@@ -6,152 +6,136 @@ import { getConfig } from '@/lib/config';
 
 export const runtime = 'nodejs';
 
+function withCorsHeaders(headers: Headers) {
+  headers.set('Access-Control-Allow-Origin', '*');
+  headers.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  headers.set(
+    'Access-Control-Allow-Headers',
+    'Content-Type, Range, Origin, Accept',
+  );
+  headers.set(
+    'Access-Control-Expose-Headers',
+    'Content-Length, Content-Range, Accept-Ranges, Content-Type',
+  );
+}
+
+function jsonError(error: string, status: number) {
+  const headers = new Headers();
+  withCorsHeaders(headers);
+  return NextResponse.json({ error }, { status, headers });
+}
+
+function decodeUpstreamUrl(rawUrl: string) {
+  try {
+    return decodeURIComponent(rawUrl);
+  } catch {
+    return rawUrl;
+  }
+}
+
+function copyHeader(
+  from: Headers,
+  to: Headers,
+  sourceKey: string,
+  targetKey = sourceKey,
+) {
+  const value = from.get(sourceKey);
+  if (value) {
+    to.set(targetKey, value);
+  }
+}
+
+function inferContentType(decodedUrl: string) {
+  const pathname = (() => {
+    try {
+      return new URL(decodedUrl).pathname.toLowerCase();
+    } catch {
+      return decodedUrl.toLowerCase();
+    }
+  })();
+
+  if (pathname.endsWith('.m4s') || pathname.endsWith('.m4v')) {
+    return 'video/iso.segment';
+  }
+  if (pathname.endsWith('.mp4')) {
+    return 'video/mp4';
+  }
+  if (pathname.endsWith('.aac')) {
+    return 'audio/aac';
+  }
+  if (pathname.endsWith('.vtt')) {
+    return 'text/vtt; charset=utf-8';
+  }
+  return 'video/mp2t';
+}
+
+export async function OPTIONS() {
+  const headers = new Headers();
+  withCorsHeaders(headers);
+  return new Response(null, { status: 204, headers });
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const url = searchParams.get('url');
   const source = searchParams.get('decotv-source');
   if (!url) {
-    return NextResponse.json({ error: 'Missing url' }, { status: 400 });
+    return jsonError('Missing url', 400);
   }
 
   const config = await getConfig();
   const liveSource = config.LiveConfig?.find((s: any) => s.key === source);
   if (!liveSource) {
-    return NextResponse.json({ error: 'Source not found' }, { status: 404 });
+    return jsonError('Source not found', 404);
   }
   const ua = liveSource.ua || 'AptvPlayer/1.4.10';
-
-  let response: Response | null = null;
-  let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+  const decodedUrl = decodeUpstreamUrl(url);
 
   try {
-    const decodedUrl = decodeURIComponent(url);
-    response = await fetch(decodedUrl, {
-      headers: {
-        'User-Agent': ua,
-      },
+    const targetUrl = new URL(decodedUrl);
+    const requestHeaders = new Headers();
+    requestHeaders.set('User-Agent', ua);
+    requestHeaders.set('Accept', '*/*');
+    requestHeaders.set(
+      'Referer',
+      `${targetUrl.protocol}//${targetUrl.host}${targetUrl.pathname}`,
+    );
+    requestHeaders.set('Origin', `${targetUrl.protocol}//${targetUrl.host}`);
+
+    const range = request.headers.get('range');
+    if (range) {
+      requestHeaders.set('Range', range);
+    }
+
+    const response = await fetch(decodedUrl, {
+      cache: 'no-cache',
+      redirect: 'follow',
+      headers: requestHeaders,
     });
-    if (!response.ok) {
-      return NextResponse.json(
-        { error: 'Failed to fetch segment' },
-        { status: 500 },
-      );
+
+    if (!response.ok && response.status !== 206) {
+      return jsonError('Failed to fetch segment', response.status || 502);
     }
 
     const headers = new Headers();
-    headers.set('Content-Type', 'video/mp2t');
-    headers.set('Access-Control-Allow-Origin', '*');
-    headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    headers.set(
-      'Access-Control-Allow-Headers',
-      'Content-Type, Range, Origin, Accept',
-    );
-    headers.set('Accept-Ranges', 'bytes');
-    headers.set(
-      'Access-Control-Expose-Headers',
-      'Content-Length, Content-Range',
-    );
-    const contentLength = response.headers.get('content-length');
-    if (contentLength) {
-      headers.set('Content-Length', contentLength);
+    withCorsHeaders(headers);
+    headers.set('Cache-Control', 'no-cache');
+    copyHeader(response.headers, headers, 'content-type', 'Content-Type');
+    copyHeader(response.headers, headers, 'content-length', 'Content-Length');
+    copyHeader(response.headers, headers, 'content-range', 'Content-Range');
+    copyHeader(response.headers, headers, 'accept-ranges', 'Accept-Ranges');
+    if (!headers.has('Content-Type')) {
+      headers.set('Content-Type', inferContentType(decodedUrl));
+    }
+    if (!headers.has('Accept-Ranges')) {
+      headers.set('Accept-Ranges', 'bytes');
     }
 
-    // 使用流式传输，避免占用内存
-    const stream = new ReadableStream({
-      start(controller) {
-        if (!response?.body) {
-          controller.close();
-          return;
-        }
-
-        reader = response.body.getReader();
-        const isCancelled = false;
-
-        function pump() {
-          if (isCancelled || !reader) {
-            return;
-          }
-
-          reader
-            .read()
-            .then(({ done, value }) => {
-              if (isCancelled) {
-                return;
-              }
-
-              if (done) {
-                controller.close();
-                cleanup();
-                return;
-              }
-
-              controller.enqueue(value);
-              pump();
-            })
-            .catch((error) => {
-              if (!isCancelled) {
-                controller.error(error);
-                cleanup();
-              }
-            });
-        }
-
-        function cleanup() {
-          if (reader) {
-            try {
-              reader.releaseLock();
-            } catch {
-              // reader 可能已经被释放，忽略错误
-            }
-            reader = null;
-          }
-        }
-
-        pump();
-      },
-      cancel() {
-        // 当流被取消时，确保释放所有资源
-        if (reader) {
-          try {
-            reader.releaseLock();
-          } catch {
-            // reader 可能已经被释放，忽略错误
-          }
-          reader = null;
-        }
-
-        if (response?.body) {
-          try {
-            response.body.cancel();
-          } catch {
-            // 忽略取消时的错误
-          }
-        }
-      },
+    return new Response(response.body, {
+      status: response.status,
+      headers,
     });
-
-    return new Response(stream, { headers });
   } catch {
-    // 确保在错误情况下也释放资源
-    if (reader) {
-      try {
-        (reader as ReadableStreamDefaultReader<Uint8Array>).releaseLock();
-      } catch {
-        // 忽略错误
-      }
-    }
-
-    if (response?.body) {
-      try {
-        response.body.cancel();
-      } catch {
-        // 忽略错误
-      }
-    }
-
-    return NextResponse.json(
-      { error: 'Failed to fetch segment' },
-      { status: 500 },
-    );
+    return jsonError('Failed to fetch segment', 500);
   }
 }

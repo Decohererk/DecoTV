@@ -4,6 +4,7 @@ import { ReactNode, useCallback, useMemo } from 'react';
 import { VirtuosoGrid } from 'react-virtuoso';
 
 type VirtualizationMode = 'auto' | 'always' | 'never';
+type ScrollParentMode = 'window' | 'body';
 
 interface VirtualizedVideoGridProps<T> {
   data: T[] | null | undefined;
@@ -15,6 +16,7 @@ interface VirtualizedVideoGridProps<T> {
   hasMore?: boolean;
   isLoadingMore?: boolean;
   mode?: VirtualizationMode;
+  scrollParent?: ScrollParentMode;
   virtualizationThreshold?: number;
   overscan?: number;
 }
@@ -74,6 +76,7 @@ export default function VirtualizedVideoGrid<T>({
   hasMore = true,
   isLoadingMore = false,
   mode = 'auto',
+  scrollParent = 'window',
   virtualizationThreshold = 80,
   overscan,
 }: VirtualizedVideoGridProps<T>) {
@@ -121,7 +124,7 @@ export default function VirtualizedVideoGrid<T>({
     }
 
     return (
-      <div className='flex min-h-[60px] w-full items-center justify-center py-4'>
+      <div className='flex min-h-15 w-full items-center justify-center py-4'>
         {isLoadingMore ? (
           <span
             className='inline-block h-5 w-5 animate-spin rounded-full border-2 border-slate-500/50 border-t-emerald-300'
@@ -148,6 +151,10 @@ export default function VirtualizedVideoGrid<T>({
   );
 
   const endReached = onEndReached ? handleEndReached : undefined;
+  const customScrollParent =
+    scrollParent === 'body' && typeof document !== 'undefined'
+      ? document.body
+      : undefined;
 
   const increaseViewportBy = useMemo(
     () => ({
@@ -186,7 +193,8 @@ export default function VirtualizedVideoGrid<T>({
 
   return (
     <VirtuosoGrid
-      useWindowScroll
+      useWindowScroll={!customScrollParent}
+      customScrollParent={customScrollParent}
       data={safeData}
       listClassName={className}
       itemClassName={itemClassName}

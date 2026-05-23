@@ -81,6 +81,10 @@ export interface IStorage {
   deleteSkipConfig(userName: string, source: string, id: string): Promise<void>;
   getAllSkipConfigs(userName: string): Promise<{ [key: string]: SkipConfig }>;
 
+  // 跳过预设组（可选实现，未实现时由上层降级）
+  getSkipPresets?(userName: string): Promise<SkipPreset[]>;
+  setSkipPresets?(userName: string, presets: SkipPreset[]): Promise<void>;
+
   // 数据清理相关
   clearAllData(): Promise<void>;
 }
@@ -99,6 +103,17 @@ export interface SearchResult {
   desc?: string;
   type_name?: string;
   douban_id?: number;
+  tmdb_id?: number;
+  connector_id?: string;
+  connector_type?: 'openlist' | 'emby' | 'jellyfin' | 'xiaoya';
+  source_item_id?: string;
+  private_audio_streams?: Array<{
+    index: number;
+    display_title?: string;
+    language?: string;
+    codec?: string;
+    is_default: boolean;
+  }>;
 }
 
 // 豆瓣数据结构
@@ -121,4 +136,20 @@ export interface SkipConfig {
   enable: boolean; // 是否启用跳过片头片尾
   intro_time: number; // 片头时间（秒）
   outro_time: number; // 片尾时间（秒）
+  preset_id?: string; // 来源预设 ID
+  preset_name?: string; // 来源预设名称
+  preset_category?: SkipPreset['category']; // 来源预设分类
+  preset_pinned?: boolean; // 来源预设是否置顶
+}
+
+export interface SkipPreset {
+  id: string;
+  name: string;
+  category?: '通用' | '动漫' | '欧美剧' | '日剧' | '韩剧' | '综艺' | '纪录片';
+  pinned?: boolean;
+  lastUsedAt?: number;
+  enable: boolean;
+  intro_time: number;
+  outro_time: number;
+  updatedAt: number;
 }

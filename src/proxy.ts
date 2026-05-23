@@ -3,9 +3,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getAuthInfoFromCookie } from '@/lib/auth';
+import { isPublicAdminAllowed, isPublicMode } from '@/lib/auth-mode';
 
 export async function proxy(request: NextRequest) {
-  const { pathname } = request.nextUrl;
+  let pathname = request.nextUrl.pathname;
 
   // 处理成人内容模式路径重写
   // 如果路径以 /adult/ 开头，重写到实际 API 路径并添加 adult 标记
@@ -25,13 +26,22 @@ export async function proxy(request: NextRequest) {
     if (actualPath.startsWith('/api')) {
       // 不返回，继续执行下面的认证逻辑
       request = new NextRequest(url, request);
+      pathname = request.nextUrl.pathname;
     } else {
       return response;
     }
   }
 
+  if (isPublicMode() && isPublicModeAllowedPath(pathname)) {
+    return NextResponse.next();
+  }
+
   // 跳过不需要认证的路径
   if (shouldSkipAuth(pathname)) {
+    return NextResponse.next();
+  }
+
+  if (request.method === 'OPTIONS' && pathname.startsWith('/api/proxy')) {
     return NextResponse.next();
   }
 
@@ -82,6 +92,52 @@ export async function proxy(request: NextRequest) {
   return handleAuthFailure(request, pathname);
 }
 
+function isPublicModeAllowedPath(pathname: string): boolean {
+  if (pathname.startsWith('/admin') || pathname.startsWith('/api/admin')) {
+    return isPublicAdminAllowed();
+  }
+
+  const publicPages = [
+    '/',
+    '/search',
+    '/douban',
+    '/play',
+    '/live',
+    '/source-browser',
+    '/netdisk',
+    '/my-library',
+  ];
+
+  if (
+    publicPages.some(
+      (path) =>
+        pathname === path || (path !== '/' && pathname.startsWith(path)),
+    )
+  ) {
+    return true;
+  }
+
+  const publicApis = [
+    '/api/search',
+    '/api/detail',
+    '/api/playrecords',
+    '/api/favorites',
+    '/api/searchhistory',
+    '/api/skipconfigs',
+    '/api/skip-presets',
+    '/api/douban',
+    '/api/image-proxy',
+    '/api/proxy',
+    '/api/live',
+    '/api/pansou',
+    '/api/tmdb',
+    '/api/private-library',
+    '/api/source-browser',
+  ];
+
+  return publicApis.some((path) => pathname.startsWith(path));
+}
+
 // 验证签名
 async function verifySignature(
   data: string,
@@ -127,7 +183,20 @@ function handleAuthFailure(
 ): NextResponse {
   // 如果是 API 路由，返回 401 状态码
   if (pathname.startsWith('/api')) {
-    return new NextResponse('Unauthorized', { status: 401 });
+    const headers = new Headers();
+    if (pathname.startsWith('/api/proxy')) {
+      headers.set('Access-Control-Allow-Origin', '*');
+      headers.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
+      headers.set(
+        'Access-Control-Allow-Headers',
+        'Content-Type, Range, Origin, Accept',
+      );
+      headers.set(
+        'Access-Control-Expose-Headers',
+        'Content-Length, Content-Range, Accept-Ranges, Content-Type',
+      );
+    }
+    return new NextResponse('Unauthorized', { status: 401, headers });
   }
 
   // 否则重定向到登录页面
@@ -150,6 +219,8 @@ function shouldSkipAuth(pathname: string): boolean {
     '/screenshot.png',
     '/api/tvbox/config',
     '/api/tvbox/diagnose',
+    '/api/proxy/m3u8-filter',
+    '/api/proxy/m3u8-asset',
     '/register', // 允许访问注册页面
   ];
 
@@ -159,7 +230,11 @@ function shouldSkipAuth(pathname: string): boolean {
   const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
   const hasRedis = !!(process.env.REDIS_URL || process.env.KV_REST_API_URL);
 
-  if (storageType === 'localstorage' && !hasRedis) {
+  if (
+    storageType === 'localstorage' &&
+    !hasRedis &&
+    (!isPublicMode() || isPublicAdminAllowed())
+  ) {
     // 本地模式下允许访问 admin 相关 API（用于获取/保存配置）
     const localModeAllowedPaths = [
       '/api/admin/config',

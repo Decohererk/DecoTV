@@ -296,18 +296,18 @@ function NetdiskPageClient() {
     <PageLayout activePath='/netdisk'>
       <div className='px-4 sm:px-10 py-4 sm:py-8'>
         <div className='mx-auto w-full max-w-6xl space-y-6'>
-          <section className='rounded-2xl border border-cyan-400/20 bg-linear-to-r from-slate-900/90 to-cyan-950/55 p-5 shadow-[0_18px_48px_-28px_rgba(6,182,212,0.8)] backdrop-blur-xl'>
+          <section className='rounded-2xl border border-cyan-200 bg-linear-to-r from-white/95 to-cyan-50/80 p-5 shadow-[0_18px_48px_-28px_rgba(6,182,212,0.45)] backdrop-blur-xl dark:border-cyan-400/20 dark:from-slate-900/90 dark:to-cyan-950/55 dark:shadow-[0_18px_48px_-28px_rgba(6,182,212,0.8)]'>
             <div className='mb-4 flex items-center justify-between gap-3'>
               <div>
-                <h1 className='text-2xl font-bold text-cyan-200'>
+                <h1 className='text-2xl font-bold text-cyan-700 dark:text-cyan-200'>
                   PanSou 网盘聚合搜索
                 </h1>
-                <p className='text-sm text-slate-300'>
+                <p className='text-sm text-slate-600 dark:text-slate-300'>
                   支持阿里云盘 / 夸克 / 百度网盘等多源检索
                 </p>
               </div>
               {lastUpdatedAt && (
-                <span className='text-xs text-slate-300'>
+                <span className='text-xs text-slate-500 dark:text-slate-300'>
                   最近更新: {new Date(lastUpdatedAt).toLocaleString('zh-CN')}
                 </span>
               )}
@@ -315,7 +315,7 @@ function NetdiskPageClient() {
 
             <div className='flex flex-col gap-3 sm:flex-row'>
               <div className='relative flex-1'>
-                <Search className='pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400' />
+                <Search className='pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-400' />
                 <input
                   type='text'
                   value={query}
@@ -326,14 +326,14 @@ function NetdiskPageClient() {
                     }
                   }}
                   placeholder='输入资源关键词，例如：哈利波特合集'
-                  className='h-11 w-full rounded-xl border border-slate-600/70 bg-slate-900/55 pl-10 pr-3 text-sm text-slate-100 outline-none transition-colors focus:border-cyan-400/70'
+                  className='h-11 w-full rounded-xl border border-slate-300 bg-white/85 pl-10 pr-3 text-sm text-slate-900 outline-none transition-colors placeholder:text-slate-400 focus:border-cyan-500/70 dark:border-slate-600/70 dark:bg-slate-900/55 dark:text-slate-100 dark:focus:border-cyan-400/70'
                 />
               </div>
               <button
                 type='button'
                 onClick={() => void handleSearch()}
                 disabled={loading}
-                className='inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-cyan-400/40 bg-cyan-500/15 px-4 text-sm font-medium text-cyan-100 transition hover:bg-cyan-500/25 disabled:cursor-not-allowed disabled:opacity-60'
+                className='inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-cyan-300/70 bg-cyan-50 px-4 text-sm font-medium text-cyan-700 transition hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-cyan-400/40 dark:bg-cyan-500/15 dark:text-cyan-100 dark:hover:bg-cyan-500/25'
               >
                 {loading ? (
                   <RefreshCw className='h-4 w-4 animate-spin' />
@@ -346,7 +346,7 @@ function NetdiskPageClient() {
                 type='button'
                 onClick={() => void handleSearch(true)}
                 disabled={loading}
-                className='inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 text-sm font-medium text-slate-100 transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-60'
+                className='inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white/80 px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/20 dark:bg-white/10 dark:text-slate-100 dark:hover:bg-white/20'
               >
                 <RefreshCw className='h-4 w-4' />
                 强制刷新
@@ -354,8 +354,8 @@ function NetdiskPageClient() {
             </div>
 
             <div className='mt-3 flex items-center gap-2'>
-              <span className='inline-flex items-center gap-1 text-xs text-slate-300'>
-                <Database className='h-3.5 w-3.5 text-cyan-300' />
+              <span className='inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-300'>
+                <Database className='h-3.5 w-3.5 text-cyan-600 dark:text-cyan-300' />
                 搜索来源
               </span>
               <div className='flex flex-wrap items-center gap-2'>
@@ -368,8 +368,8 @@ function NetdiskPageClient() {
                       onClick={() => setSourceType(option.value)}
                       className={`rounded-lg border px-2.5 py-1 text-xs transition ${
                         active
-                          ? 'border-cyan-300/60 bg-cyan-500/20 text-cyan-100'
-                          : 'border-slate-600/80 bg-slate-800/60 text-slate-200 hover:border-cyan-400/55'
+                          ? 'border-cyan-400/70 bg-cyan-50 text-cyan-700 dark:border-cyan-300/60 dark:bg-cyan-500/20 dark:text-cyan-100'
+                          : 'border-slate-300 bg-white/70 text-slate-600 hover:border-cyan-400/55 dark:border-slate-600/80 dark:bg-slate-800/60 dark:text-slate-200'
                       }`}
                     >
                       {option.label}
@@ -380,16 +380,16 @@ function NetdiskPageClient() {
             </div>
           </section>
 
-          <section className='rounded-2xl border border-white/10 bg-slate-900/65 p-4 backdrop-blur-xl'>
-            <div className='mb-3 flex items-center gap-2 text-sm font-medium text-slate-200'>
-              <SlidersHorizontal className='h-4 w-4 text-cyan-300' />
+          <section className='rounded-2xl border border-slate-200 bg-white/90 p-4 backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/65'>
+            <div className='mb-3 flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-200'>
+              <SlidersHorizontal className='h-4 w-4 text-cyan-600 dark:text-cyan-300' />
               高级筛选
             </div>
             <div className='grid gap-3 sm:grid-cols-3'>
               <select
                 value={sort}
                 onChange={(event) => setSort(event.target.value as SortMode)}
-                className='h-10 rounded-xl border border-slate-600/70 bg-slate-900/60 px-3 text-sm text-slate-100 outline-none focus:border-cyan-400/70'
+                className='h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-cyan-500/70 dark:border-slate-600/70 dark:bg-slate-900/60 dark:text-slate-100 dark:focus:border-cyan-400/70'
               >
                 <option value='relevance'>按相关度</option>
                 <option value='newest'>按时间（最新）</option>
@@ -400,7 +400,7 @@ function NetdiskPageClient() {
                 onChange={(event) =>
                   setFileType(event.target.value as FileTypeFilter)
                 }
-                className='h-10 rounded-xl border border-slate-600/70 bg-slate-900/60 px-3 text-sm text-slate-100 outline-none focus:border-cyan-400/70'
+                className='h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-cyan-500/70 dark:border-slate-600/70 dark:bg-slate-900/60 dark:text-slate-100 dark:focus:border-cyan-400/70'
               >
                 <option value='all'>全部文件类型</option>
                 <option value='video'>视频</option>
@@ -416,7 +416,7 @@ function NetdiskPageClient() {
                 onChange={(event) =>
                   setTimeRange(event.target.value as TimeRangeFilter)
                 }
-                className='h-10 rounded-xl border border-slate-600/70 bg-slate-900/60 px-3 text-sm text-slate-100 outline-none focus:border-cyan-400/70'
+                className='h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-cyan-500/70 dark:border-slate-600/70 dark:bg-slate-900/60 dark:text-slate-100 dark:focus:border-cyan-400/70'
               >
                 <option value='all'>全部时间</option>
                 <option value='24h'>24 小时内</option>
@@ -437,8 +437,8 @@ function NetdiskPageClient() {
                     onClick={() => toggleCloudType(cloudType)}
                     className={`rounded-lg border px-2.5 py-1 text-xs transition ${
                       active
-                        ? 'border-cyan-300/60 bg-cyan-500/20 text-cyan-100'
-                        : 'border-slate-600/80 bg-slate-800/60 text-slate-200 hover:border-cyan-400/55'
+                        ? 'border-cyan-400/70 bg-cyan-50 text-cyan-700 dark:border-cyan-300/60 dark:bg-cyan-500/20 dark:text-cyan-100'
+                        : 'border-slate-300 bg-white/70 text-slate-600 hover:border-cyan-400/55 dark:border-slate-600/80 dark:bg-slate-800/60 dark:text-slate-200'
                     }`}
                   >
                     {cloudType}
@@ -448,31 +448,31 @@ function NetdiskPageClient() {
             </div>
           </section>
 
-          <section className='rounded-2xl border border-white/10 bg-slate-900/65 p-4 backdrop-blur-xl'>
+          <section className='rounded-2xl border border-slate-200 bg-white/90 p-4 backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/65'>
             <div className='mb-4 flex flex-wrap items-center justify-between gap-2'>
-              <h2 className='text-lg font-semibold text-slate-100'>
+              <h2 className='text-lg font-semibold text-slate-900 dark:text-slate-100'>
                 搜索结果
-                <span className='ml-2 text-sm font-normal text-slate-400'>
+                <span className='ml-2 text-sm font-normal text-slate-500 dark:text-slate-400'>
                   {total} 条
                 </span>
               </h2>
             </div>
 
             {error && (
-              <div className='mb-3 rounded-lg border border-red-400/30 bg-red-500/10 p-2 text-sm text-red-200'>
+              <div className='mb-3 rounded-lg border border-red-300 bg-red-50 p-2 text-sm text-red-600 dark:border-red-400/30 dark:bg-red-500/10 dark:text-red-200'>
                 {error}
               </div>
             )}
 
             {loading ? (
-              <div className='flex h-28 items-center justify-center text-sm text-slate-300'>
+              <div className='flex h-28 items-center justify-center text-sm text-slate-500 dark:text-slate-300'>
                 <RefreshCw className='mr-2 h-4 w-4 animate-spin' />
                 正在请求远程 PanSou 节点...
               </div>
             ) : items.length === 0 ? (
-              <div className='py-10 text-center text-sm text-slate-300 space-y-2'>
+              <div className='space-y-2 py-10 text-center text-sm text-slate-500 dark:text-slate-300'>
                 <p>暂无结果，试试调整关键词或筛选条件</p>
-                <p className='text-xs text-slate-400'>
+                <p className='text-xs text-slate-500 dark:text-slate-400'>
                   搜索服务由配置的远程节点提供
                 </p>
               </div>
@@ -481,15 +481,15 @@ function NetdiskPageClient() {
                 {items.map((item) => (
                   <article
                     key={item.id}
-                    className='rounded-xl border border-white/10 bg-white/5 p-3'
+                    className='rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-white/10 dark:bg-white/5'
                   >
                     <div className='flex flex-wrap items-start justify-between gap-3'>
                       <div className='min-w-0'>
-                        <h3 className='line-clamp-2 text-sm font-medium text-slate-100 sm:text-base'>
+                        <h3 className='line-clamp-2 text-sm font-medium text-slate-900 dark:text-slate-100 sm:text-base'>
                           {item.title}
                         </h3>
-                        <div className='mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-300'>
-                          <span className='rounded bg-cyan-500/15 px-2 py-0.5 text-cyan-100'>
+                        <div className='mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-300'>
+                          <span className='rounded bg-cyan-50 px-2 py-0.5 text-cyan-700 dark:bg-cyan-500/15 dark:text-cyan-100'>
                             {item.cloudType}
                           </span>
                           <span>{item.fileType}</span>
@@ -501,7 +501,7 @@ function NetdiskPageClient() {
                           <span>{item.source}</span>
                         </div>
                         {item.password && (
-                          <p className='mt-1 text-xs text-amber-200'>
+                          <p className='mt-1 text-xs text-amber-700 dark:text-amber-200'>
                             提取码: {item.password}
                           </p>
                         )}
@@ -513,7 +513,7 @@ function NetdiskPageClient() {
                           onClick={() => {
                             void navigator.clipboard.writeText(item.url);
                           }}
-                          className='inline-flex items-center gap-1 rounded-lg border border-white/15 px-2 py-1 text-xs text-slate-200 transition hover:bg-white/10'
+                          className='inline-flex items-center gap-1 rounded-lg border border-slate-300 px-2 py-1 text-xs text-slate-700 transition hover:bg-slate-100 dark:border-white/15 dark:text-slate-200 dark:hover:bg-white/10'
                         >
                           <Copy className='h-3.5 w-3.5' />
                           复制
@@ -522,7 +522,7 @@ function NetdiskPageClient() {
                           href={item.url}
                           target='_blank'
                           rel='noopener noreferrer'
-                          className='inline-flex items-center gap-1 rounded-lg border border-cyan-400/35 px-2 py-1 text-xs text-cyan-100 transition hover:bg-cyan-500/15'
+                          className='inline-flex items-center gap-1 rounded-lg border border-cyan-300/70 px-2 py-1 text-xs text-cyan-700 transition hover:bg-cyan-50 dark:border-cyan-400/35 dark:text-cyan-100 dark:hover:bg-cyan-500/15'
                         >
                           <ExternalLink className='h-3.5 w-3.5' />
                           打开
@@ -535,7 +535,7 @@ function NetdiskPageClient() {
             )}
           </section>
 
-          <p className='text-center text-xs text-slate-400'>
+          <p className='text-center text-xs text-slate-500 dark:text-slate-400'>
             搜索服务由配置的远程节点提供
           </p>
         </div>

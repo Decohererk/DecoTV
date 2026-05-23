@@ -1,6 +1,15 @@
 {
   "functions": {
-    "src/app/api/*/route.js": {
+    "src/app/api/download/proxy/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/download/ffmpeg/route.ts": {
+      "maxDuration": 300
+    },
+    "src/app/api/download/ffmpeg/file/route.ts": {
+      "maxDuration": 300
+    },
+    "src/app/api/*/route.ts": {
       "maxDuration": 30
     }
   },

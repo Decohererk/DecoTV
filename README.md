@@ -51,6 +51,7 @@
 - 🔍 **多源聚合搜索**：一次搜索立刻返回全源结果。
 - 📄 **丰富详情页**：支持剧集列表、演员、年份、简介等完整信息展示。
 - ▶️ **流畅在线播放**：集成 HLS.js & ArtPlayer。
+- 🔊 **多音轨切换**：当视频存在 2 条及以上音轨时，播放器控制栏会显示“音轨”按钮，可在中文配音 / English 等音轨间切换；单音轨会自动隐藏按钮，界面保持简洁。
 - 🖥️ **网页投屏（Google Cast）**：支持在网页端直接发起投屏，并提供 iOS 设备兼容提示。
 - ❤️ **收藏 + 继续观看**：支持 Kvrocks/Redis/Upstash 存储，多端同步进度。
 - 👤 **用户注册系统**：支持用户自助注册（可选），带图形验证码防机器人。
@@ -61,6 +62,8 @@
 - ⬇️ **视频资源下载能力**：支持浏览器分片下载与服务端 FFmpeg 转存下载，增强任务管理、重试与超时处理。
 - 📡 **灵活直播体验**：支持多直播源配置、分页切换优化与 m3u8/flv/mp4 自动识别处理。
 - 🧠 **豆瓣信息增强**：支持标题反查豆瓣 ID、并行抓取与图片代理，详情页信息更完整。
+- 🎞️ **TMDB 元数据增强**：支持与豆瓣互补的 TMDB 元数据查询，中文优先、英文回退，可为详情页和私人影库补充更稳定的海报、背景图与简介。
+- 🗂️ **私人影库**：支持接入 OpenList / 小雅 Alist / Emby / Jellyfin，在“我的影库”中浏览和播放自有媒体资源，并通过服务端代理保护流地址与鉴权信息。
 - 👿 **智能去广告**：自动跳过视频中的切片广告（实验性）。
 - 🏠 **本地无数据库模式**：无需 Redis，自动降级为浏览器 localStorage 存储。
 - 🌐 **CMS 全量代理**：根绝 Mixed Content 和 CORS 问题，支持任意第三方源。
@@ -253,6 +256,7 @@ services:
 docker run -d \
   --name decotv \
   -p 3000:3000 \
+  -v decotv-downloads:/app/.cache/ffmpeg-downloads \
   -e PASSWORD=你的管理密码 \
   ghcr.io/decohererk/decotv:latest
 ```
@@ -269,17 +273,55 @@ services:
       - '3000:3000'
     environment:
       - PASSWORD=你的管理密码
+    volumes:
+      - decotv-downloads:/app/.cache/ffmpeg-downloads
+volumes:
+  decotv-downloads:
 ```
 
 #### 重要说明
 
-| 项目        | 说明                                                                 |
-| ----------- | -------------------------------------------------------------------- |
-| ✅ 必需配置 | `PASSWORD` - 管理员登录密码                                          |
-| ❌ 不需要   | `USERNAME`、`NEXT_PUBLIC_STORAGE_TYPE`、任何数据库连接变量           |
-| ❌ 不需要   | `AUTH_SECRET`、`AUTH_URL`（这些是其他认证框架的配置，DecoTV 不使用） |
-| ⚠️ 数据存储 | 所有配置保存在浏览器 localStorage，清除浏览器数据会丢失配置          |
-| ⚠️ 多端同步 | 不支持，每个浏览器独立存储                                           |
+| 项目        | 说明                                                                  |
+| ----------- | --------------------------------------------------------------------- |
+| ✅ 必需配置 | `PASSWORD` - 管理员登录密码                                           |
+| ❌ 不需要   | `USERNAME`、`NEXT_PUBLIC_STORAGE_TYPE`、任何数据库连接变量            |
+| ❌ 不需要   | `AUTH_SECRET`、`AUTH_URL`（这些是其他认证框架的配置，DecoTV 不使用）  |
+| ⚠️ 数据存储 | 所有配置保存在浏览器 localStorage，清除浏览器数据会丢失配置           |
+| ⚠️ 多端同步 | 不支持，每个浏览器独立存储                                            |
+| ⬇️ 下载缓存 | 建议挂载 `/app/.cache/ffmpeg-downloads`，避免容器重建时丢失已转存文件 |
+
+### 🏡 免登录家庭模式
+
+默认仍为 `NEXT_PUBLIC_AUTH_MODE=password`，需要登录后使用。家庭局域网、NAS、电视盒子、OpenWrt、飞牛 OS 等完全可信内网场景，可以显式开启免登录：
+
+```bash
+docker run -d \
+  --name decotv \
+  -p 3000:3000 \
+  -e NEXT_PUBLIC_AUTH_MODE=public \
+  -v decotv-downloads:/app/.cache/ffmpeg-downloads \
+  ghcr.io/decohererk/decotv:latest
+```
+
+Docker Compose 示例：
+
+```yml
+services:
+  decotv:
+    image: ghcr.io/decohererk/decotv:latest
+    container_name: decotv
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    environment:
+      - NEXT_PUBLIC_AUTH_MODE=public
+    volumes:
+      - decotv-downloads:/app/.cache/ffmpeg-downloads
+volumes:
+  decotv-downloads:
+```
+
+> ⚠️ `NEXT_PUBLIC_AUTH_MODE=public` 仅建议局域网、NAS、家庭内网、VPN、自用环境开启，不建议公网暴露。`/admin` 和 `/api/admin/*` 默认仍需要登录保护；只有同时设置 `PUBLIC_ALLOW_ADMIN=true` 才会免登录开放后台和后台 API，该开关风险极高，仅适合完全可信内网。
 
 #### 常见问题
 
@@ -352,17 +394,41 @@ DecoTV 支持标准的苹果 CMS V10 API 格式。
 
 dockge/komodo 等 docker compose UI 也有自动更新功能
 
+## 播放卡顿与部署地区说明
+
+DecoTV 现在默认使用 `NEXT_PUBLIC_PLAYBACK_PROXY_MODE=smart`。播放页会先检测 m3u8、key、首个分片、Range 和浏览器 CORS，再决定直连、只代理播放列表，或在最后兜底代理 key/map/segment。
+
+- 美国 Oracle Cloud 圣何塞 VPS：搜索和详情可能正常，但如果代理 ts/m4s 分片，所有视频流量都会绕到美国 VPS，亚洲资源站通常会明显变慢。推荐 `NEXT_PUBLIC_PLAYBACK_PROXY_MODE=smart`、`PLAYBACK_PROXY_SEGMENTS=false`，不要默认强制 `proxy`。
+- Vercel：Serverless 适合 API、详情和短 m3u8 manifest 处理，不适合长时间大量中转视频分片。推荐 smart，并保持 `PLAYBACK_PROXY_SEGMENTS=false`，避免函数超时和高流量。
+- 中国大陆用户：更适合香港、新加坡、日本、韩国或家庭宽带/NAS 部署。美国机房通常不适合作为视频分片中转，优先让浏览器 direct 播放。
+- 家庭 NAS / 飞牛 OS / 1Panel Docker：推荐 public 模式配合 smart 播放策略。局域网播放时优先直连，服务器主要负责搜索、详情和必要的 manifest 兼容处理。
+
+常用播放环境变量：
+
+```bash
+NEXT_PUBLIC_PLAYBACK_PROXY_MODE=smart
+PLAYBACK_HEALTH_CHECK=true
+PLAYBACK_HEALTH_TIMEOUT_MS=8000
+PLAYBACK_FIRST_SEGMENT_TEST=true
+PLAYBACK_PROXY_SEGMENTS=false
+PLAYBACK_MAX_AUTO_SWITCH=3
+PLAYBACK_BAD_SOURCE_TTL=1800
+PLAYBACK_GOOD_SOURCE_TTL=86400
+```
+
 ## 🌍 环境变量
 
 ### 基础配置
 
-| 变量                  | 说明       | 可选值                   | 默认值                                                                                                                     |
-| --------------------- | ---------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
-| USERNAME              | 管理员账号 | 任意字符串               | 无默认，数据库模式**必填**，本地模式可省略                                                                                 |
-| PASSWORD              | 管理员密码 | 任意字符串               | 无默认，**必填**                                                                                                           |
-| SITE_BASE             | 站点 URL   | 形如 https://example.com | 空                                                                                                                         |
-| NEXT_PUBLIC_SITE_NAME | 站点名称   | 任意字符串               | DecoTV                                                                                                                     |
-| ANNOUNCEMENT          | 站点公告   | 任意字符串               | 本网站仅提供影视信息搜索服务，所有内容均来自第三方网站。本站不存储任何视频资源，不对任何内容的准确性、合法性、完整性负责。 |
+| 变量                  | 说明                      | 可选值                   | 默认值                                                                                                                     |
+| --------------------- | ------------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| USERNAME              | 管理员账号                | 任意字符串               | 无默认，数据库模式**必填**，本地模式可省略                                                                                 |
+| PASSWORD              | 管理员密码                | 任意字符串               | 无默认，**必填**                                                                                                           |
+| NEXT_PUBLIC_AUTH_MODE | 访问模式                  | password、public         | password                                                                                                                   |
+| PUBLIC_ALLOW_ADMIN    | public 模式下是否开放后台 | true/false               | false                                                                                                                      |
+| SITE_BASE             | 站点 URL                  | 形如 https://example.com | 空                                                                                                                         |
+| NEXT_PUBLIC_SITE_NAME | 站点名称                  | 任意字符串               | DecoTV                                                                                                                     |
+| ANNOUNCEMENT          | 站点公告                  | 任意字符串               | 本网站仅提供影视信息搜索服务，所有内容均来自第三方网站。本站不存储任何视频资源，不对任何内容的准确性、合法性、完整性负责。 |
 
 ### 存储配置
 
@@ -390,9 +456,9 @@ dockge/komodo 等 docker compose UI 也有自动更新功能
 | 变量                                | 说明                     | 可选值     | 默认值 | 备注            |
 | ----------------------------------- | ------------------------ | ---------- | ------ | --------------- |
 | NEXT_PUBLIC_SEARCH_MAX_PAGE         | 搜索接口可拉取的最大页数 | 1-50       | 5      | 数值越大越慢    |
-| NEXT_PUBLIC_DOUBAN_PROXY_TYPE       | 豆瓣数据源请求方式       | 见下方说明 | direct | -               |
+| NEXT_PUBLIC_DOUBAN_PROXY_TYPE       | 豆瓣数据源请求方式       | 见下方说明 | auto   | -               |
 | NEXT_PUBLIC_DOUBAN_PROXY            | 自定义豆瓣数据代理 URL   | URL prefix | 空     | custom 模式使用 |
-| NEXT_PUBLIC_DOUBAN_IMAGE_PROXY_TYPE | 豆瓣图片代理类型         | 见下方说明 | direct | -               |
+| NEXT_PUBLIC_DOUBAN_IMAGE_PROXY_TYPE | 豆瓣图片代理类型         | 见下方说明 | auto   | -               |
 | NEXT_PUBLIC_DOUBAN_IMAGE_PROXY      | 自定义豆瓣图片代理 URL   | URL prefix | 空     | custom 模式使用 |
 | NEXT_PUBLIC_DISABLE_YELLOW_FILTER   | 关闭色情内容过滤         | true/false | false  | 不建议开启      |
 | NEXT_PUBLIC_FLUID_SEARCH            | 是否开启搜索接口流式输出 | true/false | true   | -               |
@@ -401,22 +467,29 @@ dockge/komodo 等 docker compose UI 也有自动更新功能
 
 | 值                    | 说明                                                                               |
 | --------------------- | ---------------------------------------------------------------------------------- |
-| direct                | 服务器直接请求豆瓣源站（默认）                                                     |
-| cors-proxy-zwei       | 浏览器通过 [Zwei](https://github.com/bestzwei) 提供的 CORS Proxy 请求豆瓣数据      |
-| cmliussss-cdn-tencent | 浏览器通过 [CMLiussss](https://github.com/cmliu) 提供的腾讯云 CDN 加速请求豆瓣数据 |
-| cmliussss-cdn-ali     | 浏览器通过 [CMLiussss](https://github.com/cmliu) 提供的阿里云 CDN 加速请求豆瓣数据 |
+| auto                  | 智能自动（默认），服务端按成功率和延迟在多个 provider 间自动降级                   |
+| direct                | 服务器直接请求豆瓣源站                                                             |
+| server                | 兼容值，等同于服务端智能代理                                                       |
+| cors-proxy-zwei       | 服务端通过 [Zwei](https://github.com/bestzwei) 提供的 CORS Proxy 请求豆瓣数据      |
+| cmliussss-cdn-tencent | 服务端通过 [CMLiussss](https://github.com/cmliu) 提供的腾讯云 CDN 加速请求豆瓣数据 |
+| cmliussss-cdn-ali     | 服务端通过 [CMLiussss](https://github.com/cmliu) 提供的阿里云 CDN 加速请求豆瓣数据 |
 | custom                | 使用自定义代理（需配置 NEXT_PUBLIC_DOUBAN_PROXY）                                  |
 
 #### NEXT_PUBLIC_DOUBAN_IMAGE_PROXY_TYPE 可选值
 
 | 值                    | 说明                                                        |
 | --------------------- | ----------------------------------------------------------- |
-| direct                | 浏览器直接请求豆瓣图片域名（默认）                          |
+| auto                  | 智能自动（默认），按候选链路逐级重试                        |
+| direct                | 浏览器直接请求豆瓣图片域名                                  |
 | server                | 服务器代理请求豆瓣图片                                      |
 | img3                  | 使用豆瓣官方精品 CDN（阿里云）                              |
 | cmliussss-cdn-tencent | 使用 [CMLiussss](https://github.com/cmliu) 提供的腾讯云 CDN |
 | cmliussss-cdn-ali     | 使用 [CMLiussss](https://github.com/cmliu) 提供的阿里云 CDN |
 | custom                | 使用自定义代理（需配置 NEXT_PUBLIC_DOUBAN_IMAGE_PROXY）     |
+
+`auto` 模式下，豆瓣数据请求统一走服务端 `/api/douban/*`：优先使用最近成功且延迟较低的 provider，单个 provider 超时、403/429/5xx、返回 HTML 或非 JSON 时，会记录失败原因并短期负缓存，然后自动尝试下一个 provider。API 成功响应会带 `X-DecoTV-Douban-Provider` 与 `X-DecoTV-Douban-Duration`，失败响应会带 `providerAttempts` 便于排查。
+
+豆瓣封面图片在浏览器端按候选链路重试：用户选择的代理 → 上次 auto 成功节点 → `img3.doubanio.com` → CMLiussss 阿里云 CDN → CMLiussss 腾讯云 CDN → `/api/image-proxy` 服务器代理 → 豆瓣原图直连 → `poster-fallback.svg`。本地设置或后台配置变更后会触发 `doubanProxyChanged`，只清理豆瓣相关缓存。
 
 ### 弹幕功能配置
 
@@ -437,6 +510,65 @@ DecoTV 的网盘搜索采用远程 PanSou 节点转发模式。推荐先部署 [
 3. 填写服务地址（例如 `https://your-pansou-domain`），按需填写 `API Token / 鉴权密钥`。
 4. 先执行连通性测试，再保存配置即可生效。
 
+### TMDB 元数据增强配置
+
+DecoTV 支持把 TMDB 作为与豆瓣互补的第二元数据来源，尤其适合欧美 / 日韩内容和私人影库场景。
+
+快速使用：
+
+1. 到 TMDB 后台申请 API Key。
+2. 在环境变量或后台 `TMDB 配置` 中填写 `TMDB_API_KEY`。
+3. 如果部署环境无法直连 TMDB，可额外配置 `TMDB_PROXY` 或 `TMDB_REVERSE_PROXY`。
+4. 进入后台执行 `TMDB 连通性测试`，保存后即可生效。
+
+使用建议：
+
+- 华语内容可以继续以豆瓣为主，TMDB 负责补充海报、背景图和缺失简介。
+- 私人影库建议同时开启 TMDB，这样 OpenList 文件名中的 `{tmdb-xxxx}` 或 Emby / Jellyfin 的 `ProviderIds.Tmdb` 可以直接命中精准元数据。
+- 如果未配置 `TMDB_API_KEY`，项目会自动降级，不影响原有豆瓣链路和公共资源站播放。
+
+### 私人影库配置（OpenList / 小雅 Alist / Emby / Jellyfin）
+
+DecoTV 支持在后台接入 OpenList、小雅 Alist、Emby、Jellyfin 等私有媒体服务，配置成功后前台会自动显示“我的影库”入口。
+
+OpenList 快速使用：
+
+1. 准备 OpenList 服务地址、Token 和挂载根路径。
+2. 推荐按以下格式整理目录，方便精准匹配 TMDB 元数据：
+
+```text
+电影：流浪地球2 (2023) {tmdb-835547}/流浪地球2.mkv
+剧集：三体 (2023) {tmdb-1428232}/Season 01/S01E01.mkv
+```
+
+1. 进入后台 `私人影库` 配置区块，添加连接并选择 `OpenList`。
+2. 填写服务地址、Token、根路径，先测试连接，再执行扫描。
+
+小雅 Alist 快速使用：
+
+1. 准备小雅服务地址、访问密码（若实例开启了访问控制）和扫描根目录，默认根目录为 `/`。
+2. 进入后台 `私人影库` 配置区块，添加连接并选择 `小雅 Alist`。
+3. 填写服务地址、访问密码和根目录；如实例未开启访问密码可留空，根目录可按需填写如 `/电影`。
+4. 先测试连接，再执行扫描；播放 `.strm` 文件时，服务端会实时刷新阿里云盘直链。
+
+Emby / Jellyfin 快速使用：
+
+1. 在 Emby / Jellyfin 管理后台创建 API Key，按需准备用户 ID。
+2. 在 DecoTV 后台添加 `Emby` 或 `Jellyfin` 连接，填写服务地址、API Key，可选填写用户 ID 和媒体库过滤。
+3. 先测试连接，再保存配置，最后执行扫描或刷新。
+4. 播放时 DecoTV 会通过服务端代理获取流地址，并尝试同步播放进度。
+
+补充说明：
+
+- 私人影库的视频流和鉴权信息不会直接暴露给浏览器端。
+- 小雅 Alist 兼容 Alist API；如果测试连接提示鉴权失败，请检查是否需要填写访问密码。
+- OpenList 默认根目录为 `/Media`，小雅 Alist 默认根目录为 `/`。
+- 部分小雅资源暂不支持站内在线播放，遇到此类资源时请在小雅网页端打开。
+- Emby / Jellyfin 私人影库支持音轨切换：播放器会基于 `AudioStreamIndex` 重新加载流并恢复切换前进度；HLS 资源支持无中断音轨切换。
+- OpenList 即使没有 TMDB ID 也能扫描，但推荐使用规范命名以获得更好的元数据匹配效果。
+- 如果某一个连接失效，只会影响该连接，不会影响其他连接和公共资源站功能。
+- 更完整的部署变量说明可参考 [TMDB 与私人影库部署说明](./docs/tmdb-private-library-deployment.md)。
+
 ## ⬇️ 下载功能使用指南
 
 ### 1) 下载当前集（浏览器分片下载）
@@ -448,22 +580,50 @@ DecoTV 的网盘搜索采用远程 PanSou 节点转发模式。推荐先部署 [
 ### 2) FFmpeg 转存下载（服务端）
 
 - 在播放页点击 `FFmpeg 转存下载`。
-- 此模式要求部署环境可执行 `ffmpeg`/`ffprobe`（推荐 Docker/VPS）。
-- 在 Vercel 等 Serverless 环境会返回提示：`该功能仅支持 Docker/VPS 部署`。
+- 官方 Docker 镜像已内置 `ffmpeg`/`ffprobe`，VPS Docker 部署可直接使用。
+- 自行构建镜像时请使用本仓库 Dockerfile；非 Docker 手动部署需自行安装 `ffmpeg` 和 `ffprobe`。
+- Vercel 等 Serverless 环境无法稳定运行长时间 FFmpeg 进程，会自动降级为浏览器分片下载。
 
 ### 3) 推荐环境与可选变量
 
 - 推荐：Docker / VPS（稳定支持浏览器下载 + FFmpeg 转存）。
+- 推荐挂载：`/app/.cache/ffmpeg-downloads`，用于保存服务端转存的临时成品文件。
 - 可选变量：
 - `FFMPEG_PATH`：自定义 ffmpeg 可执行路径。
 - `FFPROBE_PATH`：自定义 ffprobe 可执行路径。
 - `FFMPEG_DOWNLOAD_DIR`：服务端转存文件目录。
 - `FFMPEG_ALLOW_SERVERLESS=true`：仅在你明确具备可执行二进制能力时使用。
 
+VPS Docker 持久化示例：
+
+```yml
+services:
+  decotv:
+    image: ghcr.io/decohererk/decotv:latest
+    ports:
+      - '3000:3000'
+    environment:
+      - PASSWORD=你的管理密码
+      - FFMPEG_MAX_CONCURRENT_JOBS=2
+    volumes:
+      - decotv-downloads:/app/.cache/ffmpeg-downloads
+volumes:
+  decotv-downloads:
+```
+
+如果使用宿主机目录绑定，例如 `./downloads:/app/.cache/ffmpeg-downloads`，请确保目录允许容器内 UID `1001` 写入：
+
+```bash
+mkdir -p ./downloads
+sudo chown -R 1001:1001 ./downloads
+```
+
 ### 4) 常见错误排查
 
 - `拉取播放列表失败 (502)`：通常是上游 m3u8 源需要特定 `Referer/Origin`，请确认源可访问，或切换其他源重试。
-- `FFmpeg API request failed (500/501)`：检查部署环境是否安装 FFmpeg；无二进制能力时请改用 `下载当前集`。
+- `FFmpeg API request failed (500/501)`：检查部署环境是否安装 FFmpeg；官方 Docker 镜像应开箱可用，自建镜像请确认 Dockerfile 包含 FFmpeg。
+- `EACCES` / `permission denied`：转存目录不可写；使用上方 named volume，或修正宿主机目录权限。
+- 转存大文件失败：检查 VPS 磁盘空间、反向代理超时和 `FFMPEG_JOB_RETENTION_MS`，必要时降低 `FFMPEG_MAX_CONCURRENT_JOBS`。
 
 ## Roadmap
 
