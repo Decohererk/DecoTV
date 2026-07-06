@@ -6,6 +6,7 @@ import {
   resolveServerDoubanProxyConfig,
 } from '@/lib/douban-proxy';
 import { resolveImageUrlCandidates } from '@/lib/image-url';
+import { fetchWithValidatedRedirects } from '@/lib/proxy-security';
 
 export const runtime = 'nodejs';
 
@@ -67,9 +68,9 @@ async function probeImageCandidates(request: Request): Promise<{
     const startedAt = Date.now();
 
     try {
-      const response = await fetch(absoluteUrl, {
+      const fetchInit = {
         signal: controller.signal,
-        cache: 'no-store',
+        cache: 'no-store' as const,
         headers: {
           Referer: 'https://movie.douban.com/',
           'User-Agent':
@@ -77,7 +78,12 @@ async function probeImageCandidates(request: Request): Promise<{
           Accept:
             'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
         },
-      });
+      };
+      const response = candidate.startsWith('/')
+        ? await fetch(absoluteUrl, fetchInit)
+        : await fetchWithValidatedRedirects(absoluteUrl, fetchInit, {
+            timeoutMs: 5000,
+          });
       const durationMs = Date.now() - startedAt;
       const contentType = response.headers.get('content-type') || '';
       await response.body?.cancel().catch(() => undefined);

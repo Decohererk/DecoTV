@@ -4,7 +4,11 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { getConfig } from '@/lib/config';
 import { getEffectiveRequestOrigin } from '@/lib/request-protocol';
-import { getSpiderJar } from '@/lib/spiderJar';
+import {
+  getFallbackSpiderJarInfo,
+  getSpiderJar,
+  getSpiderJarSecurityStatus,
+} from '@/lib/spiderJar';
 import {
   buildResolutionFilterFromSearchParams,
   formatResolutionLabel,
@@ -19,42 +23,6 @@ import {
 // 3. 探测失败时，仍然返回第一个候选（保证字段存在），并附加 ;fail 方便诊断
 // 4. 可通过 ?forceSpiderRefresh=1 强制刷新缓存
 // 5. 若用户仍需要本地代理，在 admin 面板单独展示“备用代理地址”而不是写入 spider 主字段
-
-// 远程候选列表（按稳定性 & 全球可达性排序）
-const REMOTE_SPIDER_CANDIDATES: { url: string; md5?: string }[] = [
-  {
-    url: 'https://deco-spider.oss-cn-hangzhou.aliyuncs.com/XC.jar',
-    md5: 'e53eb37c4dc3dce1c8ee0c996ca3a024',
-  },
-  {
-    url: 'https://deco-spider-1250000000.cos.ap-shanghai.myqcloud.com/XC.jar',
-    md5: 'e53eb37c4dc3dce1c8ee0c996ca3a024',
-  },
-  {
-    url: 'https://cdn.gitcode.net/qq_26898231/TVBox/-/raw/main/JAR/XC.jar',
-    md5: 'e53eb37c4dc3dce1c8ee0c996ca3a024',
-  },
-  {
-    url: 'https://cdn.gitee.com/q215613905/TVBoxOS/raw/main/JAR/XC.jar',
-    md5: 'e53eb37c4dc3dce1c8ee0c996ca3a024',
-  },
-  {
-    url: 'https://gitcode.net/qq_26898231/TVBox/-/raw/main/JAR/XC.jar',
-    md5: 'e53eb37c4dc3dce1c8ee0c996ca3a024',
-  },
-  {
-    url: 'https://gitee.com/q215613905/TVBoxOS/raw/main/JAR/XC.jar',
-    md5: 'e53eb37c4dc3dce1c8ee0c996ca3a024',
-  },
-  {
-    url: 'https://gitcode.net/qq_26898231/TVBox/-/raw/main/JAR/XC.jar',
-    md5: 'e53eb37c4dc3dce1c8ee0c996ca3a024',
-  },
-  {
-    url: 'https://ghproxy.com/https://raw.githubusercontent.com/FongMi/CatVodSpider/main/jar/custom_spider.jar',
-    md5: 'a8b9c1d2e3f4',
-  },
-];
 
 // 内网 / 私网 host 判定（TVBox 体检会标记为 private/not public 的几类）
 function isPrivateHost(host: string): boolean {
@@ -78,14 +46,6 @@ function getRequestBaseUrl(req: NextRequest): string {
   if (envBase) return envBase;
 
   return getEffectiveRequestOrigin(req);
-}
-
-function isPublicBaseUrl(baseUrl: string): boolean {
-  try {
-    return !isPrivateHost(new URL(baseUrl).hostname);
-  } catch {
-    return false;
-  }
 }
 
 function resolveClientRegion(req: NextRequest, searchParams: URLSearchParams) {
@@ -119,6 +79,20 @@ function resolveClientRegion(req: NextRequest, searchParams: URLSearchParams) {
   // TVBox/影视仓客户端常常不带语言和真实地区信息。项目面向中文源，
   // 默认国内优先比使用 Vercel/部署机房位置更符合客户端可达性。
   return 'domestic';
+}
+
+function isAllowedPinnedSpiderUrl(
+  rawSpiderUrl: string,
+  allowedCandidates: string[],
+): boolean {
+  try {
+    const cleanUrl = rawSpiderUrl.split(';')[0];
+    const parsed = new URL(cleanUrl);
+    if (isPrivateHost(parsed.hostname)) return false;
+    return allowedCandidates.includes(parsed.toString());
+  } catch {
+    return false;
+  }
 }
 
 // 旧 spider 探测与缓存逻辑已被 getSpiderJar 取代（保留候选常量供文档或 UI 展示）
@@ -210,7 +184,6 @@ export async function GET(req: NextRequest) {
 
     const cfg = await getConfig();
     const baseUrl = getRequestBaseUrl(req);
-    const publicBaseUrl = isPublicBaseUrl(baseUrl);
     const jarMode = (
       searchParams.get('jar') ||
       searchParams.get('jarMode') ||
@@ -218,6 +191,7 @@ export async function GET(req: NextRequest) {
     )
       .trim()
       .toLowerCase();
+    const spiderSecurity = getSpiderJarSecurityStatus();
 
     // 🛡️ 纵深防御 Layer 1: 配置接口严格过滤
     // 确定是否应该过滤成人内容
@@ -255,68 +229,18 @@ export async function GET(req: NextRequest) {
       ]);
     } catch (err) {
       console.warn('[TVBox] Spider JAR fetch timeout/failed:', err);
-      // 超时或失败时使用默认备选
-      jarInfo = {
-        success: false,
-        source: 'fallback',
-        md5: 'e53eb37c4dc3dce1c8ee0c996ca3a024',
-        buffer: null,
-        cached: false,
-      };
+      jarInfo = getFallbackSpiderJarInfo();
     }
 
-    let globalSpiderJar: string;
-
-    if (publicBaseUrl && jarMode !== 'remote' && jarMode !== 'direct') {
-      // 配置地址能被客户端访问时，优先返回同源 JAR 代理。
-      // 这避免 Vercel/服务器能下载 GitHub JAR，但电视盒子客户端下载不了的问题。
-      globalSpiderJar = `${baseUrl}/api/proxy/spider.jar;md5;${jarInfo.md5}`;
-    } else if (jarInfo.success && jarInfo.source !== 'fallback') {
-      // 成功获取远程 JAR，使用完整的 URL;md5 格式
-      globalSpiderJar = `${jarInfo.source};md5;${jarInfo.md5}`;
-    } else {
-      // 所有远程源失败时的智能备选策略
-      // 根据请求来源和模式选择最优备选方案
-      const backupStrategies = {
-        // 国内用户优先策略
-        domestic: [
-          'https://gitcode.net/qq_26898231/TVBox/-/raw/main/JAR/XC.jar;md5;e53eb37c4dc3dce1c8ee0c996ca3a024',
-          'https://gitee.com/q215613905/TVBoxOS/raw/main/JAR/XC.jar;md5;e53eb37c4dc3dce1c8ee0c996ca3a024',
-          'https://cdn.gitcode.net/qq_26898231/TVBox/-/raw/main/JAR/XC.jar;md5;e53eb37c4dc3dce1c8ee0c996ca3a024',
-        ],
-        // 国际用户优先策略
-        international: [
-          'https://cdn.jsdelivr.net/gh/hjdhnx/dr_py@main/js/drpy.jar;md5;' +
-            jarInfo.md5,
-          'https://fastly.jsdelivr.net/gh/hjdhnx/dr_py@main/js/drpy.jar;md5;' +
-            jarInfo.md5,
-          'https://cdn.jsdelivr.net/gh/FongMi/CatVodSpider@main/jar/spider.jar;md5;' +
-            jarInfo.md5,
-        ],
-        // 代理访问策略
-        proxy: [
-          'https://ghproxy.com/https://raw.githubusercontent.com/hjdhnx/dr_py/main/js/drpy.jar;md5;' +
-            jarInfo.md5,
-          'https://github.moeyy.xyz/https://raw.githubusercontent.com/hjdhnx/dr_py/main/js/drpy.jar;md5;' +
-            jarInfo.md5,
-        ],
-      };
-
-      // 客户端线路优先，而不是部署机房优先。Vercel 等海外运行时
-      // 不应该导致国内 TVBox 客户端拿到 GitHub-first 的 JAR。
-      let selectedStrategy =
-        resolveClientRegion(req, searchParams) === 'international'
-          ? backupStrategies.international
-          : backupStrategies.domestic;
-
-      // 添加代理备选（总是包含）
-      selectedStrategy = [...selectedStrategy, ...backupStrategies.proxy];
-
-      // 时间基础的轮询选择（避免总是使用同一个源）
-      const timeBasedIndex =
-        Math.floor(Date.now() / (30 * 60 * 1000)) % selectedStrategy.length;
-      globalSpiderJar = selectedStrategy[timeBasedIndex];
-    }
+    const sameOriginSpiderJar = `${baseUrl}/api/proxy/spider.jar;md5;${jarInfo.md5}`;
+    const usePinnedRemoteSpider =
+      (jarMode === 'remote' || jarMode === 'direct') &&
+      jarInfo.success &&
+      jarInfo.source !== 'fallback' &&
+      jarInfo.hashVerified;
+    let globalSpiderJar = usePinnedRemoteSpider
+      ? `${jarInfo.source};md5;${jarInfo.md5}`
+      : sameOriginSpiderJar;
 
     // 🔒 根据过滤设置筛选视频源
     let sourcesToUse = (cfg.SourceConfig || []).filter((s) => !s.disabled);
@@ -451,7 +375,10 @@ export async function GET(req: NextRequest) {
             // jar配置处理
             if (obj.jar) {
               const jarUrl = obj.jar.trim();
-              if (jarUrl.startsWith('http')) {
+              if (
+                jarUrl.startsWith('http') &&
+                isAllowedPinnedSpiderUrl(jarUrl, spiderSecurity.candidates)
+              ) {
                 site.jar = jarUrl;
                 globalSpiderJar = jarUrl;
               }
@@ -875,12 +802,12 @@ export async function GET(req: NextRequest) {
       };
     }
 
-    // 若用户传入了 ?spider=<url> 覆盖，则在保证公共可达（非私网）时允许替换
+    // 只允许显式配置并通过 SHA-256 pin 的远端 JAR 覆盖。
     const overrideSpider = searchParams.get('spider');
     if (
       overrideSpider &&
       /^https?:\/\//i.test(overrideSpider) &&
-      !isPrivateHost(new URL(overrideSpider).hostname)
+      isAllowedPinnedSpiderUrl(overrideSpider, spiderSecurity.candidates)
     ) {
       tvboxConfig.spider = overrideSpider;
     } else {
@@ -889,29 +816,42 @@ export async function GET(req: NextRequest) {
     // 附加可观测字段（TVBox 忽略未知字段，不影响使用）
     tvboxConfig.spider_url = jarInfo.source;
     tvboxConfig.spider_md5 = jarInfo.md5;
+    tvboxConfig.spider_sha256 = jarInfo.sha256;
     tvboxConfig.spider_cached = jarInfo.cached;
     tvboxConfig.spider_real_size = jarInfo.size;
     tvboxConfig.spider_tried = jarInfo.tried;
     tvboxConfig.spider_success = jarInfo.success;
+    tvboxConfig.spider_hash_verified = jarInfo.hashVerified;
+    tvboxConfig.spider_remote_enabled = jarInfo.remoteEnabled;
+    tvboxConfig.spider_security_mode = jarInfo.securityMode;
     tvboxConfig.min_resolution = resolutionFilter.minLevel
       ? formatResolutionLabel(resolutionFilter.minLevel)
       : 'off';
     tvboxConfig.resolution_strict = resolutionFilter.strict;
-    tvboxConfig.jar_mode =
-      publicBaseUrl && jarMode !== 'remote' && jarMode !== 'direct'
-        ? 'same-origin-proxy'
-        : 'remote';
+    tvboxConfig.jar_mode = usePinnedRemoteSpider
+      ? 'pinned-remote'
+      : 'same-origin-proxy';
     tvboxConfig.client_region = resolveClientRegion(req, searchParams);
     tvboxConfig.douban_navigation = includeDoubanNavigation;
     tvboxConfig.douban_keyword_search = enableDoubanKeywordSearch;
 
     // 提供备用字段：仅用于调试，不影响体检
-    (tvboxConfig as any).spider_backup =
-      'https://gitcode.net/qq_26898231/TVBox/-/raw/main/JAR/XC.jar';
+    (tvboxConfig as any).spider_backup = sameOriginSpiderJar;
     // 保留候选列表以便前端展示（可选）
-    (tvboxConfig as any).spider_candidates = REMOTE_SPIDER_CANDIDATES.map(
-      (c) => c.url,
-    );
+    (tvboxConfig as any).spider_candidates = spiderSecurity.candidates;
+    (tvboxConfig as any).spider_security = spiderSecurity;
+
+    // fallback-only 模式下内置 JAR 不含完整 CSP spider，配置里又存在 csp_ 源时
+    // 明确提示用户，避免只看到「没找到数据 / jar 加载失败」而无从排查
+    if (
+      jarInfo.securityMode === 'fallback-only' &&
+      tvboxConfig.sites.some((site: { type?: number }) => site.type === 3)
+    ) {
+      (tvboxConfig as any).spider_warning =
+        '当前为 fallback-only 模式：内置 JAR 仅保证端点可达，不包含完整 CSP spider，' +
+        '配置中的 csp_ 源将无法返回数据。如需恢复，请设置 ALLOW_REMOTE_SPIDER_JAR=true、' +
+        'SPIDER_JAR_URL(S) 和 SPIDER_JAR_SHA256（详见 TVBox配置优化说明.md 的迁移指南）。';
+    }
 
     // 配置验证和清理
     console.log('TVBox配置验证:', {

@@ -28,6 +28,9 @@ export async function GET(req: NextRequest) {
       'X-Spider-Success': jarInfo.success.toString(),
       'X-Spider-Size': jarInfo.size.toString(),
       'X-Spider-MD5': jarInfo.md5,
+      'X-Spider-SHA256': jarInfo.sha256,
+      'X-Spider-Hash-Verified': jarInfo.hashVerified.toString(),
+      'X-Spider-Security-Mode': jarInfo.securityMode,
     });
 
     // 如果是 HEAD 请求，只返回头部

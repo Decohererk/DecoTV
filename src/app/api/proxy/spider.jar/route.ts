@@ -19,6 +19,10 @@ export async function GET(_req: NextRequest) {
         'X-Spider-Source': jarInfo.source,
         'X-Spider-Success': jarInfo.success.toString(),
         'X-Spider-Cached': jarInfo.cached.toString(),
+        'X-Spider-MD5': jarInfo.md5,
+        'X-Spider-SHA256': jarInfo.sha256,
+        'X-Spider-Hash-Verified': jarInfo.hashVerified.toString(),
+        'X-Spider-Security-Mode': jarInfo.securityMode,
       },
     });
   } catch (error) {

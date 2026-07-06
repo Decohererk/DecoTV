@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { fetchWithValidatedRedirects } from '@/lib/proxy-security';
+
 export const runtime = 'nodejs';
 
 // Spider jar健康检查端点
@@ -21,20 +23,18 @@ export async function GET(req: NextRequest) {
     const cleanUrl = jarUrl.split(';')[0];
 
     // 检查jar文件可用性
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒超时
-
     try {
-      const response = await fetch(cleanUrl, {
-        method: 'HEAD',
-        signal: controller.signal,
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      const response = await fetchWithValidatedRedirects(
+        cleanUrl,
+        {
+          method: 'HEAD',
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          },
         },
-      });
-
-      clearTimeout(timeoutId);
+        { timeoutMs: 10000 },
+      );
 
       const result = {
         url: cleanUrl,
@@ -49,8 +49,6 @@ export async function GET(req: NextRequest) {
 
       return NextResponse.json(result);
     } catch (fetchError) {
-      clearTimeout(timeoutId);
-
       const errorMessage =
         fetchError instanceof Error ? fetchError.message : 'Unknown error';
 

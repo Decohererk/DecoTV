@@ -3345,7 +3345,6 @@ const VideoSourceConfig = ({
       key: `csp_demo_${Date.now()}`, // 使用时间戳避免重复key
       api: 'csp_AppYsV2',
       detail: JSON.stringify({
-        jar: 'https://raw.githubusercontent.com/FongMi/CatVodSpider/main/jar/custom_spider.jar;md5;a8b9c1d2e3f4',
         ext: 'https://raw.githubusercontent.com/FongMi/CatVodSpider/main/json/config.json',
         type: 3,
         searchable: 1,

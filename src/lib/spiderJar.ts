@@ -1,255 +1,307 @@
 /*
- * Robust spider.jar provider
- * - Sequentially tries remote candidates
- * - Caches successful jar (memory) for TTL
- * - Provides minimal fallback jar when all fail (still 200 to avoid TVBox unreachable)
+ * Safe spider.jar provider.
+ * - Uses the bundled fallback JAR by default.
+ * - Fetches a remote JAR only when explicitly enabled and pinned by SHA-256.
+ * - Reuses the proxy URL validator so redirects cannot reach private hosts.
  */
 import crypto from 'crypto';
 
-// 高可用 JAR 候选源配置 - 针对不同网络环境优化
-// 策略：多源并发检测 + 地区优化 + 实时健康检查
-// 注意：所有源地址都经过实际测试验证
-const DOMESTIC_CANDIDATES: string[] = [
-  // 国内优先源（经过验证的真实可用源）
-  'https://agit.ai/Yoursmile7/TVBox/raw/branch/master/jar/custom_spider.jar',
-  'https://ghproxy.net/https://raw.githubusercontent.com/FongMi/CatVodSpider/main/jar/custom_spider.jar',
-  'https://mirror.ghproxy.com/https://raw.githubusercontent.com/FongMi/CatVodSpider/main/jar/custom_spider.jar',
-];
+import { fetchWithValidatedRedirects } from '@/lib/proxy-security';
 
-const INTERNATIONAL_CANDIDATES: string[] = [
-  // 国际源（GitHub 和全球 CDN）
-  'https://raw.githubusercontent.com/FongMi/CatVodSpider/main/jar/custom_spider.jar',
-  'https://raw.gitmirror.com/FongMi/CatVodSpider/main/jar/custom_spider.jar',
-  'https://ghproxy.cc/https://raw.githubusercontent.com/FongMi/CatVodSpider/main/jar/custom_spider.jar',
-];
+type SpiderSecurityMode = 'fallback-only' | 'remote-pinned';
 
-const PROXY_CANDIDATES: string[] = [
-  // 代理源（多个代理服务）
-  'https://gh-proxy.com/https://raw.githubusercontent.com/FongMi/CatVodSpider/main/jar/custom_spider.jar',
-  'https://ghps.cc/https://raw.githubusercontent.com/FongMi/CatVodSpider/main/jar/custom_spider.jar',
-  'https://gh.api.99988866.xyz/https://raw.githubusercontent.com/FongMi/CatVodSpider/main/jar/custom_spider.jar',
-];
+const REMOTE_ENABLE_ENV = 'ALLOW_REMOTE_SPIDER_JAR';
+const REMOTE_URL_ENV = 'SPIDER_JAR_URL';
+const REMOTE_URLS_ENV = 'SPIDER_JAR_URLS';
+const REMOTE_SHA256_ENV = 'SPIDER_JAR_SHA256';
+const LEGACY_REMOTE_SHA256_ENV = 'REMOTE_SPIDER_JAR_SHA256';
+const MAX_REMOTE_JAR_BYTES = 20 * 1024 * 1024;
 
-// 动态候选源选择 - 根据当前环境智能选择最优源
-function getCandidates(): string[] {
-  const isDomestic = isLikelyDomesticEnvironment();
-
-  if (isDomestic) {
-    // 国内环境：优先国内源，然后国际源，最后代理源
-    return [
-      ...DOMESTIC_CANDIDATES,
-      ...INTERNATIONAL_CANDIDATES,
-      ...PROXY_CANDIDATES,
-    ];
-  } else {
-    // 国际环境：优先国际源，然后代理源，最后国内源
-    return [
-      ...INTERNATIONAL_CANDIDATES,
-      ...PROXY_CANDIDATES,
-      ...DOMESTIC_CANDIDATES,
-    ];
-  }
-}
-
-// 检测是否为国内网络环境
-function isLikelyDomesticEnvironment(): boolean {
-  try {
-    // 检查时区（简单判断）
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    if (tz.includes('Asia/Shanghai') || tz.includes('Asia/Chongqing')) {
-      return true;
-    }
-
-    // 检查语言设置
-    const lang = typeof navigator !== 'undefined' ? navigator.language : 'en';
-    if (lang.startsWith('zh-CN')) {
-      return true;
-    }
-
-    return false;
-  } catch {
-    return false; // 默认国际环境
-  }
-}
-
-// 内置稳定 JAR 作为最终 fallback - 提取自实际工作的 spider.jar
-// 这是一个最小但功能完整的 spider jar，确保 TVBox 能正常加载
+// Bundled minimal fallback JAR. This keeps TVBox endpoints reachable without
+// silently trusting third-party binary code.
 const FALLBACK_JAR_BASE64 =
   'UEsDBBQACAgIACVFfFcAAAAAAAAAAAAAAAAJAAAATUVUQS1JTkYvUEsHCAAAAAACAAAAAAAAACVFfFcAAAAAAAAAAAAAAAANAAAATUVUQS1JTkYvTUFOSUZFU1QuTUZNYW5pZmVzdC1WZXJzaW9uOiAxLjAKQ3JlYXRlZC1CeTogMS44LjBfNDIxIChPcmFjbGUgQ29ycG9yYXRpb24pCgpQSwcIj79DCUoAAABLAAAAUEsDBBQACAgIACVFfFcAAAAAAAAAAAAAAAAMAAAATWVkaWFVdGlscy5jbGFzczWRSwrCQBBER3trbdPxm4BuBHfiBxHFH4hCwJX4ATfFCrAxnWnYgZCTuPIIHkCPYE+lM5NoILPpoqvrVVd1JslCaLB3MpILJ5xRz5gbMeMS+oyeBOc4xSWucYsZN3CHe7zgiQue8YJXvOEdH/jEFz7whW984weZ+Ecm/pGJf2TiH5n4Ryb+kYl/ZOIfmfhHJv6RiX9k4h+Z+Ecm/pGJf2TiH5n4Ryb+kYl/ZOIfGQaaaXzgE1/4xje+8Y1vfOMb3/jGN77xjW98q9c0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdM0TdOI06nO7p48NRQjICAgICAgICAgICAgICAoKCgoKCgoKCgoKCgoKChoqKioqKioqKio;';
 
-interface SpiderJarInfo {
+const FALLBACK_BUFFER = Buffer.from(FALLBACK_JAR_BASE64, 'base64');
+
+export interface SpiderJarInfo {
   buffer: Buffer;
   md5: string;
-  source: string; // url or 'fallback'
-  success: boolean; // true if fetched real remote jar
+  sha256: string;
+  source: string;
+  success: boolean;
   cached: boolean;
   timestamp: number;
   size: number;
-  tried: number; // number of candidates tried until success/fallback
+  tried: number;
+  hashVerified: boolean;
+  remoteEnabled: boolean;
+  securityMode: SpiderSecurityMode;
+}
+
+interface RemoteSpiderJarConfig {
+  enabled: boolean;
+  expectedSha256?: string;
+  candidates: string[];
+  ready: boolean;
+  reason?: 'remote_disabled' | 'missing_sha256' | 'missing_urls';
 }
 
 let cache: SpiderJarInfo | null = null;
-const failedSources: Set<string> = new Set(); // 记录失败的源
+const failedSources: Set<string> = new Set();
 let lastFailureReset = Date.now();
 
-// 动态TTL策略：成功获取时使用长缓存，失败时使用短缓存便于快速重试
-const SUCCESS_TTL = 4 * 60 * 60 * 1000; // 成功时缓存4小时
-const FAILURE_TTL = 10 * 60 * 1000; // 失败时缓存10分钟
-const FAILURE_RESET_INTERVAL = 2 * 60 * 60 * 1000; // 2小时重置失败记录
+const SUCCESS_TTL = 4 * 60 * 60 * 1000;
+const FAILURE_TTL = 10 * 60 * 1000;
+const FAILURE_RESET_INTERVAL = 2 * 60 * 60 * 1000;
 
-async function fetchRemote(
-  url: string,
-  timeoutMs = 3000,
-  retryCount = 0,
-): Promise<Buffer | null> {
-  let _lastError: string | null = null;
+function isTruthy(value: string | undefined): boolean {
+  return ['1', 'true', 'yes', 'on'].includes((value || '').toLowerCase());
+}
 
-  for (let attempt = 0; attempt <= retryCount; attempt++) {
-    try {
-      const controller = new AbortController();
-      const id = setTimeout(() => controller.abort('timeout'), timeoutMs);
+function normalizeSha256(value: string | undefined): string | undefined {
+  const normalized = (value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^sha256:/, '');
+  return /^[a-f0-9]{64}$/.test(normalized) ? normalized : undefined;
+}
 
-      // 根据源类型优化请求头
-      const headers: Record<string, string> = {
-        Accept: '*/*',
-        'Accept-Encoding': 'identity',
-        'Cache-Control': 'no-cache',
-        Connection: 'close',
-      };
+function parseRemoteUrls(rawValues: Array<string | undefined>): string[] {
+  const seen = new Set<string>();
+  const urls: string[] = [];
 
-      // 针对不同源优化 User-Agent
-      if (url.includes('github') || url.includes('raw.githubusercontent')) {
-        headers['User-Agent'] = 'curl/7.68.0'; // GitHub 友好
-      } else if (url.includes('gitee') || url.includes('gitcode')) {
-        headers['User-Agent'] =
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'; // 国内源友好
-      } else if (url.includes('jsdelivr') || url.includes('fastly')) {
-        headers['User-Agent'] = 'DecoTV/1.0'; // CDN 源简洁标识
-      } else {
-        headers['User-Agent'] =
-          'Mozilla/5.0 (Linux; Android 11; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Mobile Safari/537.36';
-      }
+  for (const rawValue of rawValues) {
+    for (const rawUrl of (rawValue || '').split(/[\s,]+/)) {
+      const trimmed = rawUrl.trim();
+      if (!trimmed) continue;
 
-      const resp = await fetch(url, {
-        method: 'GET',
-        signal: controller.signal,
-        headers,
-        redirect: 'follow', // 允许重定向
-      });
-
-      clearTimeout(id);
-
-      if (!resp.ok) {
-        _lastError = `HTTP ${resp.status}: ${resp.statusText}`;
-        if (resp.status === 404 || resp.status === 403) {
-          break; // 这些错误不需要重试
+      try {
+        const parsed = new URL(trimmed);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+          continue;
         }
-        continue; // 其他错误尝试重试
-      }
+        if (parsed.username || parsed.password) continue;
 
-      const ab = await resp.arrayBuffer();
-      if (ab.byteLength < 1000) {
-        _lastError = `File too small: ${ab.byteLength} bytes`;
-        continue;
-      }
-
-      // 验证文件是否为有效的 JAR（简单检查 ZIP 头）
-      const bytes = new Uint8Array(ab);
-      if (bytes[0] !== 0x50 || bytes[1] !== 0x4b) {
-        _lastError = 'Invalid JAR file format';
-        continue;
-      }
-
-      return Buffer.from(ab);
-    } catch (error: unknown) {
-      _lastError = error instanceof Error ? error.message : 'fetch error';
-
-      // 网络错误等待后重试
-      if (attempt < retryCount) {
-        await new Promise((resolve) =>
-          setTimeout(resolve, 1000 * (attempt + 1)),
-        );
+        const normalized = parsed.toString();
+        if (!seen.has(normalized)) {
+          seen.add(normalized);
+          urls.push(normalized);
+        }
+      } catch {
+        // Ignore invalid configured URLs.
       }
     }
   }
 
-  // 忽略最后的错误，返回 null 让上层处理
+  return urls;
+}
 
-  return null;
+function getRemoteSpiderJarConfig(): RemoteSpiderJarConfig {
+  const enabled = isTruthy(process.env[REMOTE_ENABLE_ENV]);
+  const expectedSha256 = normalizeSha256(
+    process.env[REMOTE_SHA256_ENV] || process.env[LEGACY_REMOTE_SHA256_ENV],
+  );
+  const candidates = parseRemoteUrls([
+    process.env[REMOTE_URL_ENV],
+    process.env[REMOTE_URLS_ENV],
+  ]);
+
+  let reason: RemoteSpiderJarConfig['reason'];
+  if (!enabled) {
+    reason = 'remote_disabled';
+  } else if (!expectedSha256) {
+    reason = 'missing_sha256';
+  } else if (candidates.length === 0) {
+    reason = 'missing_urls';
+  }
+
+  return {
+    enabled,
+    expectedSha256,
+    candidates,
+    ready: enabled && Boolean(expectedSha256) && candidates.length > 0,
+    reason,
+  };
+}
+
+export function getSpiderJarSecurityStatus() {
+  const config = getRemoteSpiderJarConfig();
+  const mode: SpiderSecurityMode = config.ready
+    ? 'remote-pinned'
+    : 'fallback-only';
+
+  return {
+    mode,
+    reason: config.reason,
+    remoteEnabled: config.enabled,
+    hashConfigured: Boolean(config.expectedSha256),
+    expectedSha256: config.expectedSha256,
+    candidateCount: config.candidates.length,
+    candidates: config.candidates,
+    env: {
+      enable: REMOTE_ENABLE_ENV,
+      urls: `${REMOTE_URL_ENV} or ${REMOTE_URLS_ENV}`,
+      sha256: REMOTE_SHA256_ENV,
+    },
+  };
 }
 
 function md5(buf: Buffer): string {
   return crypto.createHash('md5').update(buf).digest('hex');
 }
 
+function sha256(buf: Buffer): string {
+  return crypto.createHash('sha256').update(buf).digest('hex');
+}
+
+async function fetchRemote(
+  url: string,
+  expectedSha256: string,
+  timeoutMs = 5000,
+): Promise<Buffer | null> {
+  try {
+    const response = await fetchWithValidatedRedirects(
+      url,
+      {
+        method: 'GET',
+        headers: {
+          Accept: 'application/java-archive, application/zip, */*',
+          'Accept-Encoding': 'identity',
+          'Cache-Control': 'no-cache',
+          Connection: 'close',
+          'User-Agent': 'DecoTV/1.5 spider-jar-fetcher',
+        },
+      },
+      { timeoutMs, maxRedirects: 3 },
+    );
+
+    if (!response.ok) return null;
+
+    const contentLength = Number(response.headers.get('content-length') || 0);
+    if (contentLength > MAX_REMOTE_JAR_BYTES) return null;
+
+    const arrayBuffer = await response.arrayBuffer();
+    if (
+      arrayBuffer.byteLength < 1000 ||
+      arrayBuffer.byteLength > MAX_REMOTE_JAR_BYTES
+    ) {
+      return null;
+    }
+
+    const bytes = new Uint8Array(arrayBuffer);
+    if (bytes[0] !== 0x50 || bytes[1] !== 0x4b) return null;
+
+    const buffer = Buffer.from(arrayBuffer);
+    if (sha256(buffer) !== expectedSha256) return null;
+
+    return buffer;
+  } catch {
+    return null;
+  }
+}
+
+function buildFallbackInfo(
+  now: number,
+  tried: number,
+  config: RemoteSpiderJarConfig,
+): SpiderJarInfo {
+  return {
+    buffer: FALLBACK_BUFFER,
+    md5: md5(FALLBACK_BUFFER),
+    sha256: sha256(FALLBACK_BUFFER),
+    source: 'fallback',
+    success: false,
+    cached: false,
+    timestamp: now,
+    size: FALLBACK_BUFFER.length,
+    tried,
+    hashVerified: false,
+    remoteEnabled: config.enabled,
+    securityMode: config.ready ? 'remote-pinned' : 'fallback-only',
+  };
+}
+
+export function getFallbackSpiderJarInfo(tried = 0): SpiderJarInfo {
+  return buildFallbackInfo(Date.now(), tried, getRemoteSpiderJarConfig());
+}
+
 export async function getSpiderJar(
   forceRefresh = false,
 ): Promise<SpiderJarInfo> {
   const now = Date.now();
+  const remoteConfig = getRemoteSpiderJarConfig();
+  const securityMode: SpiderSecurityMode = remoteConfig.ready
+    ? 'remote-pinned'
+    : 'fallback-only';
 
-  // 重置失败记录（定期清理）
   if (now - lastFailureReset > FAILURE_RESET_INTERVAL) {
     failedSources.clear();
     lastFailureReset = now;
   }
 
-  // 动态TTL检查
   if (!forceRefresh && cache) {
     const ttl = cache.success ? SUCCESS_TTL : FAILURE_TTL;
-    if (now - cache.timestamp < ttl) {
+    const cacheMatchesConfig =
+      cache.securityMode === securityMode &&
+      (!remoteConfig.ready ||
+        !cache.success ||
+        cache.sha256 === remoteConfig.expectedSha256);
+
+    if (cacheMatchesConfig && now - cache.timestamp < ttl) {
       return { ...cache, cached: true };
     }
   }
 
   let tried = 0;
-  const candidates = getCandidates();
 
-  // 过滤掉近期失败的源（但允许一定时间后重试）
-  const activeCandidates = candidates.filter((url) => !failedSources.has(url));
-  const candidatesToTry =
-    activeCandidates.length > 0 ? activeCandidates : candidates;
+  if (remoteConfig.ready && remoteConfig.expectedSha256) {
+    const activeCandidates = remoteConfig.candidates.filter(
+      (url) => !failedSources.has(url),
+    );
+    const candidatesToTry =
+      activeCandidates.length > 0 ? activeCandidates : remoteConfig.candidates;
 
-  for (const url of candidatesToTry) {
-    tried += 1;
-    const buf = await fetchRemote(url);
-    if (buf) {
-      // 成功时从失败列表移除
-      failedSources.delete(url);
+    for (const url of candidatesToTry) {
+      tried += 1;
+      const buffer = await fetchRemote(url, remoteConfig.expectedSha256);
 
-      const info: SpiderJarInfo = {
-        buffer: buf,
-        md5: md5(buf),
-        source: url,
-        success: true,
-        cached: false,
-        timestamp: now,
-        size: buf.length,
-        tried,
-      };
-      cache = info;
-      return info;
-    } else {
-      // 失败时添加到失败列表
+      if (buffer) {
+        failedSources.delete(url);
+
+        const info: SpiderJarInfo = {
+          buffer,
+          md5: md5(buffer),
+          sha256: sha256(buffer),
+          source: url,
+          success: true,
+          cached: false,
+          timestamp: now,
+          size: buffer.length,
+          tried,
+          hashVerified: true,
+          remoteEnabled: true,
+          securityMode,
+        };
+        cache = info;
+        return info;
+      }
+
       failedSources.add(url);
     }
   }
 
-  // fallback - 总是成功，永远不返回 404
-  const fb = Buffer.from(FALLBACK_JAR_BASE64, 'base64');
-  const info: SpiderJarInfo = {
-    buffer: fb,
-    md5: md5(fb),
-    source: 'fallback',
-    success: false,
-    cached: false,
-    timestamp: now,
-    size: fb.length,
-    tried,
-  };
-  cache = info;
-  return info;
+  const fallbackInfo = buildFallbackInfo(now, tried, remoteConfig);
+  cache = fallbackInfo;
+  return fallbackInfo;
 }
 
 export function getSpiderStatus() {
   return cache ? { ...cache, buffer: undefined } : null;
+}
+
+export function resetSpiderJarCacheForTests() {
+  cache = null;
+  failedSources.clear();
+  lastFailureReset = Date.now();
 }
