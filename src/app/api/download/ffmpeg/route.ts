@@ -11,6 +11,7 @@ import {
   resumeFfmpegJob,
   startFfmpegDownload,
 } from '@/lib/ffmpeg-download';
+import { validateProxyTargetUrl } from '@/lib/proxy-security';
 
 export const runtime = 'nodejs';
 export const fetchCache = 'force-no-store';
@@ -171,6 +172,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing title' }, { status: 400 });
     }
 
+    const isSameOriginApiSource = shouldForwardSameOriginAuth(
+      request,
+      sourceUrl,
+    );
+    let safeSourceUrl = sourceUrl;
+    if (!isSameOriginApiSource) {
+      try {
+        safeSourceUrl = await validateProxyTargetUrl(sourceUrl);
+      } catch {
+        return NextResponse.json(
+          { error: 'Blocked or invalid sourceUrl' },
+          { status: 400 },
+        );
+      }
+    }
+
     const runtimeSupport = await getFfmpegRuntimeSupport();
     if (!runtimeSupport.supported) {
       return NextResponse.json(
@@ -188,14 +205,14 @@ export async function POST(request: NextRequest) {
     let job: FfmpegJobSnapshot;
     try {
       job = await startFfmpegDownload({
-        sourceUrl: buildDockerInternalSourceUrl(request, sourceUrl),
+        sourceUrl: buildDockerInternalSourceUrl(request, safeSourceUrl),
         title: payload.title.trim(),
         fileNameHint: payload.fileNameHint?.trim(),
         requestHeaders: {
           referer: normalizeHeaderValue(payload.referer),
           origin: normalizeHeaderValue(payload.origin),
           userAgent: normalizeHeaderValue(payload.ua),
-          cookie: shouldForwardSameOriginAuth(request, sourceUrl)
+          cookie: isSameOriginApiSource
             ? normalizeHeaderValue(request.headers.get('cookie') || undefined)
             : undefined,
         },

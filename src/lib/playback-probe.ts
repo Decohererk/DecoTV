@@ -1,5 +1,6 @@
 import {
   fetchWithValidatedRedirects,
+  normalizeHeaderUrl,
   validateProxyTargetUrl,
 } from './proxy-security';
 import { getEffectiveRequestOrigin } from './request-protocol';
@@ -56,9 +57,13 @@ interface PlaylistInspection {
 const DEFAULT_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
   '(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+const TV_UA =
+  'Mozilla/5.0 (Linux; Android 10; AndroidTV) AppleWebKit/537.36 ' +
+  '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 const MAX_REDIRECTS = 3;
 const PLAYLIST_MAX_BYTES = 2 * 1024 * 1024;
 const MEDIA_PROBE_BYTES = 384 * 1024;
+const MAX_PROBE_FETCH_ATTEMPTS = 8;
 
 function qualityFromWidth(width: number): string {
   if (!width || width <= 0) return '未知';
@@ -160,6 +165,21 @@ function isRecoverableManifestStatus(status: number): boolean {
   );
 }
 
+function shouldRetryProbeStatus(status: number): boolean {
+  return (
+    status === 401 ||
+    status === 403 ||
+    status === 404 ||
+    isRecoverableManifestStatus(status)
+  );
+}
+
+function shouldFallbackToDirectManifestStatus(status: number): boolean {
+  return (
+    status === 401 || status === 403 || isRecoverableManifestStatus(status)
+  );
+}
+
 function withRequestCookie(headers: Headers, request: Request) {
   const cookie = request.headers.get('cookie');
   if (cookie && !headers.has('cookie')) {
@@ -170,23 +190,111 @@ function withRequestCookie(headers: Headers, request: Request) {
 function createProbeHeaders(
   options: ProbeFetchOptions,
   initHeaders?: RequestInit['headers'],
+  overrides?: {
+    referer?: string;
+    userAgent?: string;
+    includeOrigin?: boolean;
+  },
 ) {
   const headers = new Headers(initHeaders);
   if (!headers.has('User-Agent')) {
     headers.set(
       'User-Agent',
-      options.request.headers.get('user-agent') || DEFAULT_UA,
+      overrides?.userAgent ||
+        options.request.headers.get('user-agent') ||
+        DEFAULT_UA,
     );
   }
-  if (options.referer && !headers.has('Referer')) {
-    headers.set('Referer', options.referer);
-    try {
-      headers.set('Origin', new URL(options.referer).origin);
-    } catch {
-      // ignore invalid referer origins
+  const referer = overrides?.referer || options.referer;
+  if (referer && !headers.has('Referer')) {
+    headers.set('Referer', referer);
+    if (overrides?.includeOrigin !== false && !headers.has('Origin')) {
+      try {
+        headers.set('Origin', new URL(referer).origin);
+      } catch {
+        // ignore invalid referer origins
+      }
     }
   }
   return headers;
+}
+
+function pushUnique<T>(items: T[], item: T) {
+  if (!items.includes(item)) items.push(item);
+}
+
+function buildRefererCandidates(
+  targetUrl: URL,
+  options: ProbeFetchOptions,
+): Array<string | undefined> {
+  const candidates: Array<string | undefined> = [];
+  const explicitReferer = normalizeHeaderUrl(options.referer);
+  const inboundReferer = normalizeHeaderUrl(
+    options.request.headers.get('referer'),
+  );
+
+  pushUnique(candidates, explicitReferer);
+  try {
+    pushUnique(candidates, targetUrl.origin + '/');
+    pushUnique(candidates, new URL('.', targetUrl).toString());
+  } catch {
+    // ignore invalid URL-derived referers
+  }
+  pushUnique(candidates, inboundReferer);
+  pushUnique(candidates, undefined);
+
+  return candidates;
+}
+
+function buildProbeHeaderAttempts(
+  targetUrl: URL,
+  options: ProbeFetchOptions,
+  initHeaders?: RequestInit['headers'],
+): Headers[] {
+  const attempts: Headers[] = [];
+  const seen = new Set<string>();
+  const requestUa = options.request.headers.get('user-agent') || DEFAULT_UA;
+  const userAgents: string[] = [];
+
+  pushUnique(userAgents, requestUa);
+  pushUnique(userAgents, DEFAULT_UA);
+  pushUnique(userAgents, TV_UA);
+
+  const pushAttempt = (
+    referer: string | undefined,
+    userAgent: string,
+    includeOrigin: boolean,
+  ) => {
+    const headers = createProbeHeaders(options, initHeaders, {
+      referer,
+      userAgent,
+      includeOrigin,
+    });
+    const key = JSON.stringify({
+      accept: headers.get('accept'),
+      range: headers.get('range'),
+      referer: headers.get('referer'),
+      origin: headers.get('origin'),
+      userAgent: headers.get('user-agent'),
+    });
+    if (seen.has(key)) return;
+    seen.add(key);
+    attempts.push(headers);
+  };
+
+  pushAttempt(options.referer, requestUa, true);
+
+  for (const referer of buildRefererCandidates(targetUrl, options)) {
+    for (const userAgent of userAgents) {
+      pushAttempt(referer, userAgent, true);
+    }
+  }
+
+  for (const referer of buildRefererCandidates(targetUrl, options)) {
+    pushAttempt(referer, DEFAULT_UA, false);
+  }
+
+  return attempts.slice(0, MAX_PROBE_FETCH_ATTEMPTS);
 }
 
 async function fetchSameOriginWithTimeout(
@@ -233,20 +341,41 @@ async function fetchProbeUrl(
   }
 
   const validatedUrl = await validateProxyTargetUrl(targetUrl.toString());
-  const response = await fetchWithValidatedRedirects(
-    validatedUrl,
-    {
-      ...init,
-      headers,
-    },
-    { timeoutMs: options.timeoutMs, maxRedirects: MAX_REDIRECTS },
-  );
+  const attempts = buildProbeHeaderAttempts(targetUrl, options, init.headers);
+  let lastError: unknown;
 
-  return {
-    response,
-    elapsedMs: Date.now() - startedAt,
-    url: response.url || validatedUrl,
-  };
+  for (let index = 0; index < attempts.length; index++) {
+    try {
+      const response = await fetchWithValidatedRedirects(
+        validatedUrl,
+        {
+          ...init,
+          headers: attempts[index],
+        },
+        { timeoutMs: options.timeoutMs, maxRedirects: MAX_REDIRECTS },
+      );
+
+      if (
+        !shouldRetryProbeStatus(response.status) ||
+        index === attempts.length - 1
+      ) {
+        return {
+          response,
+          elapsedMs: Date.now() - startedAt,
+          url: response.url || validatedUrl,
+        };
+      }
+
+      await response.body?.cancel().catch(() => undefined);
+    } catch (error) {
+      lastError = error;
+      if (index === attempts.length - 1) throw error;
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('Probe fetch failed');
 }
 
 async function readTextWithLimit(response: Response, maxBytes: number) {
@@ -401,8 +530,12 @@ function speedFromBytes(
   loadedBytes: number,
   elapsedMs: number,
 ): number | undefined {
-  if (loadedBytes <= 0 || elapsedMs <= 0) return undefined;
-  return loadedBytes / 1024 / (elapsedMs / 1000);
+  if (loadedBytes <= 0) return undefined;
+  // Sub-millisecond reads (small probes, warm caches, mocked fetches in
+  // tests) can report elapsedMs === 0; clamp to 1ms so a successful read
+  // always yields a finite speed instead of undefined.
+  const effectiveElapsedMs = Math.max(elapsedMs, 1);
+  return loadedBytes / 1024 / (effectiveElapsedMs / 1000);
 }
 
 async function probeMediaBytes(
@@ -492,7 +625,7 @@ async function probeHlsPlaybackUrl(
     const fallbackTarget = unwrapSameOriginM3u8ProxyUrl(url, options.request);
     if (
       fallbackTarget &&
-      isRecoverableManifestStatus(playlistInfo.response.status)
+      shouldFallbackToDirectManifestStatus(playlistInfo.response.status)
     ) {
       try {
         const directResult = await probeHlsPlaybackUrl(fallbackTarget.url, {

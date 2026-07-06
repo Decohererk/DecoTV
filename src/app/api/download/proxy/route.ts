@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { verifyApiAuth } from '@/lib/auth';
+import { fetchWithValidatedRedirects } from '@/lib/proxy-security';
 
 export const runtime = 'nodejs';
 export const fetchCache = 'force-no-store';
@@ -288,7 +289,10 @@ async function fetchUpstreamWithFallback(
   },
 ): Promise<{ response: Response | null; error: FetchAttemptError | null }> {
   let lastError: FetchAttemptError | null = null;
-  const fetchUrl = buildDockerInternalFetchUrl(request, targetUrl);
+  const isSameOriginApi = shouldForwardSameOriginAuth(request, targetUrl);
+  const fetchUrl = isSameOriginApi
+    ? buildDockerInternalFetchUrl(request, targetUrl)
+    : targetUrl;
 
   for (const variant of options.variants) {
     const headers = buildRequestHeaders(request, {
@@ -303,13 +307,23 @@ async function fetchUpstreamWithFallback(
       const timeoutId = setTimeout(() => controller.abort(), options.timeoutMs);
       let response: Response;
       try {
-        response = await fetch(fetchUrl, {
-          method: 'GET',
-          headers,
-          signal: controller.signal,
-          redirect: 'follow',
-          cache: 'no-store',
-        });
+        response = isSameOriginApi
+          ? await fetch(fetchUrl, {
+              method: 'GET',
+              headers,
+              signal: controller.signal,
+              redirect: 'follow',
+              cache: 'no-store',
+            })
+          : await fetchWithValidatedRedirects(
+              fetchUrl,
+              {
+                method: 'GET',
+                headers,
+                cache: 'no-store',
+              },
+              { timeoutMs: options.timeoutMs },
+            );
       } finally {
         clearTimeout(timeoutId);
       }

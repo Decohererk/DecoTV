@@ -3,6 +3,7 @@
 import { NextResponse } from 'next/server';
 
 import { getConfig } from '@/lib/config';
+import { fetchWithValidatedRedirects } from '@/lib/proxy-security';
 
 export const runtime = 'nodejs';
 
@@ -107,11 +108,14 @@ export async function GET(request: Request) {
       requestHeaders.set('Range', range);
     }
 
-    const response = await fetch(decodedUrl, {
-      cache: 'no-cache',
-      redirect: 'follow',
-      headers: requestHeaders,
-    });
+    const response = await fetchWithValidatedRedirects(
+      decodedUrl,
+      {
+        cache: 'no-cache',
+        headers: requestHeaders,
+      },
+      { timeoutMs: 30000 },
+    );
 
     if (!response.ok && response.status !== 206) {
       return jsonError('Failed to fetch segment', response.status || 502);

@@ -3,6 +3,7 @@
 import { NextResponse } from 'next/server';
 
 import { getConfig } from '@/lib/config';
+import { fetchWithValidatedRedirects } from '@/lib/proxy-security';
 
 export const runtime = 'nodejs';
 
@@ -57,16 +58,19 @@ export async function GET(request: Request) {
 
   try {
     const targetUrl = new URL(decodedUrl);
-    const response = await fetch(decodedUrl, {
-      cache: 'no-cache',
-      redirect: 'follow',
-      headers: {
-        Accept: '*/*',
-        Origin: `${targetUrl.protocol}//${targetUrl.host}`,
-        Referer: `${targetUrl.protocol}//${targetUrl.host}${targetUrl.pathname}`,
-        'User-Agent': ua,
+    const response = await fetchWithValidatedRedirects(
+      decodedUrl,
+      {
+        cache: 'no-cache',
+        headers: {
+          Accept: '*/*',
+          Origin: `${targetUrl.protocol}//${targetUrl.host}`,
+          Referer: `${targetUrl.protocol}//${targetUrl.host}${targetUrl.pathname}`,
+          'User-Agent': ua,
+        },
       },
-    });
+      { timeoutMs: 15000 },
+    );
     if (!response.ok) {
       return jsonError('Failed to fetch key', response.status || 502);
     }
