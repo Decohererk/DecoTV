@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { getConfig } from '@/lib/config';
 import { getEffectiveRequestOrigin } from '@/lib/request-protocol';
-import { getSpiderJar } from '@/lib/spiderJar';
+import { getFallbackSpiderJarInfo, getSpiderJar } from '@/lib/spiderJar';
 import {
   buildResolutionFilterFromSearchParams,
   formatResolutionLabel,
@@ -255,14 +255,8 @@ export async function GET(req: NextRequest) {
       ]);
     } catch (err) {
       console.warn('[TVBox] Spider JAR fetch timeout/failed:', err);
-      // 超时或失败时使用默认备选
-      jarInfo = {
-        success: false,
-        source: 'fallback',
-        md5: 'e53eb37c4dc3dce1c8ee0c996ca3a024',
-        buffer: null,
-        cached: false,
-      };
+      // 超时或失败时使用真实内置字节的信息，保证配置 MD5 与代理响应一致。
+      jarInfo = getFallbackSpiderJarInfo();
     }
 
     let globalSpiderJar: string;
@@ -270,7 +264,7 @@ export async function GET(req: NextRequest) {
     if (publicBaseUrl && jarMode !== 'remote' && jarMode !== 'direct') {
       // 配置地址能被客户端访问时，优先返回同源 JAR 代理。
       // 这避免 Vercel/服务器能下载 GitHub JAR，但电视盒子客户端下载不了的问题。
-      globalSpiderJar = `${baseUrl}/api/proxy/spider.jar;md5;${jarInfo.md5}`;
+      globalSpiderJar = `${baseUrl}/api/proxy/spider.jar?md5=${jarInfo.md5};md5;${jarInfo.md5}`;
     } else if (jarInfo.success && jarInfo.source !== 'fallback') {
       // 成功获取远程 JAR，使用完整的 URL;md5 格式
       globalSpiderJar = `${jarInfo.source};md5;${jarInfo.md5}`;

@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const stream = await resolveStreamRequest(
+    let stream = await resolveStreamRequest(
       connectorId,
       sourceItemId,
       audioStreamIndex,
@@ -62,12 +62,31 @@ export async function GET(request: NextRequest) {
     }
 
     const range = request.headers.get('range') || '';
-    const response = await fetch(stream.url, {
-      headers: {
-        ...(stream.headers || {}),
-        ...(range ? { Range: range } : {}),
-      },
-    });
+    const fetchStream = (target: NonNullable<typeof stream>) =>
+      fetch(target.url, {
+        headers: {
+          ...(target.headers || {}),
+          ...(range ? { Range: range } : {}),
+        },
+      });
+    let response = await fetchStream(stream);
+
+    if (
+      (response.status === 401 || response.status === 403) &&
+      stream.canRefreshAuth
+    ) {
+      await response.body?.cancel().catch(() => undefined);
+      const refreshedStream = await resolveStreamRequest(
+        connectorId,
+        sourceItemId,
+        audioStreamIndex,
+        { forceRefreshAuth: true },
+      );
+      if (refreshedStream) {
+        stream = refreshedStream;
+        response = await fetchStream(stream);
+      }
+    }
 
     if (!response.ok) {
       return NextResponse.json(

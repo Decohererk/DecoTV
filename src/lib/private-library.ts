@@ -42,6 +42,7 @@ export interface PrivateLibraryItem {
   tmdbId?: number;
   mediaType: 'movie' | 'tv';
   streamPath: string;
+  seriesId?: string;
   season?: number;
   episode?: number;
   overview?: string;
@@ -867,6 +868,29 @@ async function resolveMediaServerAuth(
   return session;
 }
 
+async function withMediaServerAuthRetry<T>(
+  connector: PrivateLibraryConnector,
+  operation: (auth: MediaServerAuthSession) => Promise<T>,
+): Promise<T> {
+  const auth = await resolveMediaServerAuth(connector);
+  try {
+    return await operation(auth);
+  } catch (error) {
+    if (
+      !(error instanceof PrivateLibraryError) ||
+      error.code !== 'unauthorized' ||
+      !hasCredentialPair(connector.username, connector.password)
+    ) {
+      throw error;
+    }
+
+    const refreshedAuth = await resolveMediaServerAuth(connector, {
+      forceRefresh: true,
+    });
+    return operation(refreshedAuth);
+  }
+}
+
 function getAlistServiceName(type: PrivateLibraryConnectorType): string {
   return type === 'xiaoya' ? '小雅 Alist' : 'OpenList';
 }
@@ -1501,17 +1525,8 @@ async function scanXiaoya(
 async function scanEmbyLike(
   connector: PrivateLibraryConnector,
 ): Promise<PrivateLibraryItem[]> {
-  const auth = await resolveMediaServerAuth(connector);
-  const libraryFilter = new Set(
-    sanitizeStringArray(connector.libraryFilter).map((item) =>
-      item.toLowerCase(),
-    ),
-  );
-  const authQuery = auth.accessToken
-    ? `api_key=${encodeURIComponent(auth.accessToken)}`
-    : '';
-  const payload = await fetchJsonWithTimeout<{
-    Items?: Array<{
+  return withMediaServerAuthRetry(connector, async (auth) => {
+    type LibraryItem = {
       Id: string;
       Name: string;
       Type: string;
@@ -1520,55 +1535,127 @@ async function scanEmbyLike(
       ProviderIds?: { Tmdb?: string };
       Overview?: string;
       Genres?: string[];
-    }>;
-  }>(
-    `${connector.serverUrl}/Items?Recursive=true&IncludeItemTypes=Movie,Series&Fields=ProviderIds,ProductionYear,CollectionType,Overview,Genres&${authQuery}`,
-    {
-      headers: buildMediaServerHeaders(connector, auth),
-    },
-    PRIVATE_LIBRARY_SCAN_TIMEOUT_MS,
-    connector.type === 'emby' ? 'Emby' : 'Jellyfin',
-  );
+    };
+    type EpisodeItem = LibraryItem & {
+      SeriesId?: string;
+      SeriesName?: string;
+      ParentIndexNumber?: number;
+      IndexNumber?: number;
+    };
 
-  const scannedAt = Date.now();
-  const items: PrivateLibraryItem[] = [];
-  for (const item of payload.Items || []) {
-    if (!item?.Id || !item?.Name) {
-      continue;
+    const serviceName = connector.type === 'emby' ? 'Emby' : 'Jellyfin';
+    const buildItemsUrl = (includeItemTypes: string, fields: string) => {
+      const params = new URLSearchParams({
+        Recursive: 'true',
+        IncludeItemTypes: includeItemTypes,
+        Fields: fields,
+      });
+      if (auth.accessToken) params.set('api_key', auth.accessToken);
+      if (auth.userId) params.set('UserId', auth.userId);
+      return `${connector.serverUrl}/Items?${params.toString()}`;
+    };
+    const requestItems = async <T extends LibraryItem>(
+      includeItemTypes: string,
+      fields: string,
+    ) =>
+      fetchJsonWithTimeout<{ Items?: T[] }>(
+        buildItemsUrl(includeItemTypes, fields),
+        { headers: buildMediaServerHeaders(connector, auth) },
+        PRIVATE_LIBRARY_SCAN_TIMEOUT_MS,
+        serviceName,
+      );
+
+    const libraryFilter = new Set(
+      sanitizeStringArray(connector.libraryFilter).map((item) =>
+        item.toLowerCase(),
+      ),
+    );
+    const libraryPayload = await requestItems<LibraryItem>(
+      'Movie,Series',
+      'ProviderIds,ProductionYear,CollectionType,Overview,Genres',
+    );
+    const scannedAt = Date.now();
+    const items: PrivateLibraryItem[] = [];
+    const seriesById = new Map<string, LibraryItem>();
+    const seriesByName = new Map<string, LibraryItem>();
+
+    for (const item of libraryPayload.Items || []) {
+      if (!item?.Id || !item?.Name) continue;
+      if (
+        libraryFilter.size > 0 &&
+        !libraryFilter.has(sanitizeString(item.CollectionType).toLowerCase())
+      ) {
+        continue;
+      }
+
+      if (item.Type === 'Series') {
+        seriesById.set(item.Id, item);
+        seriesByName.set(normalizeLookupTitle(item.Name), item);
+        continue;
+      }
+
+      const tmdbId = Number(item.ProviderIds?.Tmdb);
+      items.push({
+        id: `${connector.id}:${item.Id}`,
+        connectorId: connector.id,
+        connectorType: connector.type,
+        sourceItemId: item.Id,
+        title: item.Name,
+        searchTitle: item.Name,
+        year: item.ProductionYear,
+        tmdbId: Number.isFinite(tmdbId) ? tmdbId : undefined,
+        mediaType: 'movie',
+        streamPath: item.Id,
+        overview: sanitizeString(item.Overview),
+        genres: sanitizeStringArray(item.Genres),
+        libraryName: sanitizeString(item.CollectionType),
+        poster: buildPrivateLibraryPosterUrl(connector.id, item.Id),
+        scannedAt,
+        sortKey: items.length,
+      });
     }
 
-    if (
-      libraryFilter.size > 0 &&
-      !libraryFilter.has(sanitizeString(item.CollectionType).toLowerCase())
-    ) {
-      continue;
+    if (seriesById.size === 0) return items;
+
+    const episodePayload = await requestItems<EpisodeItem>(
+      'Episode',
+      'ProviderIds,ProductionYear,Overview,Genres',
+    );
+    for (const episode of episodePayload.Items || []) {
+      if (!episode?.Id) continue;
+      const series =
+        seriesById.get(sanitizeString(episode.SeriesId)) ||
+        seriesByName.get(normalizeLookupTitle(episode.SeriesName || ''));
+      if (!series) continue;
+
+      const tmdbId = Number(series.ProviderIds?.Tmdb);
+      const season = Number(episode.ParentIndexNumber);
+      const episodeNumber = Number(episode.IndexNumber);
+      items.push({
+        id: `${connector.id}:${episode.Id}`,
+        connectorId: connector.id,
+        connectorType: connector.type,
+        sourceItemId: episode.Id,
+        seriesId: series.Id,
+        title: series.Name,
+        searchTitle: series.Name,
+        year: series.ProductionYear || episode.ProductionYear,
+        tmdbId: Number.isFinite(tmdbId) ? tmdbId : undefined,
+        mediaType: 'tv',
+        streamPath: episode.Id,
+        season: Number.isFinite(season) ? season : undefined,
+        episode: Number.isFinite(episodeNumber) ? episodeNumber : undefined,
+        overview: sanitizeString(series.Overview || episode.Overview),
+        genres: sanitizeStringArray(series.Genres || episode.Genres),
+        libraryName: sanitizeString(series.CollectionType),
+        poster: buildPrivateLibraryPosterUrl(connector.id, series.Id),
+        scannedAt,
+        sortKey: items.length,
+      });
     }
 
-    const mediaType: 'movie' | 'tv' = item.Type === 'Series' ? 'tv' : 'movie';
-    const tmdbIdRaw = item.ProviderIds?.Tmdb;
-    const tmdbId = tmdbIdRaw ? Number(tmdbIdRaw) : undefined;
-
-    items.push({
-      id: `${connector.id}:${item.Id}`,
-      connectorId: connector.id,
-      connectorType: connector.type,
-      sourceItemId: item.Id,
-      title: item.Name,
-      searchTitle: item.Name,
-      year: item.ProductionYear,
-      tmdbId: Number.isFinite(tmdbId || NaN) ? tmdbId : undefined,
-      mediaType,
-      streamPath: item.Id,
-      overview: sanitizeString(item.Overview),
-      genres: sanitizeStringArray(item.Genres),
-      libraryName: sanitizeString(item.CollectionType),
-      poster: buildPrivateLibraryPosterUrl(connector.id, item.Id),
-      scannedAt,
-      sortKey: items.length,
-    });
-  }
-
-  return items;
+    return items;
+  });
 }
 
 function comparePrivateEpisodes(
@@ -1588,7 +1675,11 @@ function getPrivateLibrarySeriesKey(item: PrivateLibraryItem): string {
   const title = normalizeLookupTitle(item.searchTitle || item.title);
   return [
     item.connectorId,
-    item.tmdbId ? `tmdb:${item.tmdbId}` : `title:${title}`,
+    item.seriesId
+      ? `series:${item.seriesId}`
+      : item.tmdbId
+        ? `tmdb:${item.tmdbId}`
+        : `title:${title}`,
     item.year || 'unknown',
     sanitizeString(item.libraryName).toLowerCase(),
   ].join(':');
@@ -1601,10 +1692,7 @@ export function aggregatePrivateLibraryItems(
   const passthrough: PrivateLibraryItem[] = [];
 
   for (const item of items) {
-    if (
-      item.mediaType !== 'tv' ||
-      (item.connectorType !== 'openlist' && item.connectorType !== 'xiaoya')
-    ) {
+    if (item.mediaType !== 'tv') {
       passthrough.push(item);
       continue;
     }
@@ -1773,19 +1861,19 @@ export async function testConnector(
       return { ok: true };
     }
 
-    const auth = await resolveMediaServerAuth(connector);
-    const authQuery = auth.accessToken
-      ? `api_key=${encodeURIComponent(auth.accessToken)}`
-      : '';
-
-    await fetchJsonWithTimeout<{ Items?: unknown[] }>(
-      `${connector.serverUrl}/Items?Limit=1&Recursive=false&${authQuery}`,
-      {
-        headers: buildMediaServerHeaders(connector, auth),
-      },
-      PRIVATE_LIBRARY_CONTROL_TIMEOUT_MS,
-      connector.type === 'emby' ? 'Emby' : 'Jellyfin',
-    );
+    await withMediaServerAuthRetry(connector, async (auth) => {
+      const authQuery = auth.accessToken
+        ? `api_key=${encodeURIComponent(auth.accessToken)}`
+        : '';
+      await fetchJsonWithTimeout<{ Items?: unknown[] }>(
+        `${connector.serverUrl}/Items?Limit=1&Recursive=false&${authQuery}`,
+        {
+          headers: buildMediaServerHeaders(connector, auth),
+        },
+        PRIVATE_LIBRARY_CONTROL_TIMEOUT_MS,
+        connector.type === 'emby' ? 'Emby' : 'Jellyfin',
+      );
+    });
 
     return { ok: true };
   } catch (error) {
@@ -1906,11 +1994,8 @@ export async function resolvePrivateLibraryAudioStreams(
     return [];
   }
 
-  const auth = await resolveMediaServerAuth(connector);
-  const mediaStreams = await fetchPlaybackInfoMediaStreams(
-    connector,
-    auth,
-    sourceItemId,
+  const mediaStreams = await withMediaServerAuthRetry(connector, (auth) =>
+    fetchPlaybackInfoMediaStreams(connector, auth, sourceItemId),
   );
 
   return mediaStreams
@@ -1993,7 +2078,12 @@ export async function resolveStreamRequest(
   connectorId: string,
   sourceItemId: string,
   audioStreamIndex?: number,
-): Promise<{ url: string; headers?: Record<string, string> } | null> {
+  options: { forceRefreshAuth?: boolean } = {},
+): Promise<{
+  url: string;
+  headers?: Record<string, string>;
+  canRefreshAuth?: boolean;
+} | null> {
   const cfg = await getPrivateLibraryConfig();
   const connector = cfg.connectors.find(
     (item) => item.id === connectorId && item.enabled,
@@ -2025,7 +2115,9 @@ export async function resolveStreamRequest(
     };
   }
 
-  const auth = await resolveMediaServerAuth(connector);
+  const auth = await resolveMediaServerAuth(connector, {
+    forceRefresh: options.forceRefreshAuth,
+  });
   const query = new URLSearchParams();
   query.set('static', 'true');
   if (auth.accessToken) {
@@ -2039,6 +2131,7 @@ export async function resolveStreamRequest(
   return {
     url: `${connector.serverUrl}/Videos/${encodeURIComponent(sourceItemId)}/stream?${query.toString()}`,
     headers: buildMediaServerHeaders(connector, auth),
+    canRefreshAuth: hasCredentialPair(connector.username, connector.password),
   };
 }
 

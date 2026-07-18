@@ -7,7 +7,10 @@ import {
   isSourceAdFilterDisabled,
   shouldUseServerSideEpisodeProxy,
 } from '@/lib/episode-rewriter';
-import { probePlaybackUrl } from '@/lib/playback-probe';
+import {
+  probePlaybackUrl,
+  selectEffectivePlaybackTarget,
+} from '@/lib/playback-probe';
 import { resolveExternalPlaybackUrl } from '@/lib/playback-url-resolver';
 import { isLikelyHlsUrl } from '@/lib/player/hls-url';
 import { getEffectiveRequestOrigin } from '@/lib/request-protocol';
@@ -214,16 +217,21 @@ export async function GET(request: NextRequest) {
     referer: resolution.referer,
     mediaType: resolution.mediaType,
   });
+  const effectiveTarget = selectEffectivePlaybackTarget({
+    playbackUrl,
+    resolvedUrl: probeResult.resolvedUrl,
+    proxied,
+  });
 
   return NextResponse.json(
     {
       ...probeResult,
       originalUrl: resolution.originalUrl || rawUrl,
-      playbackUrl,
-      resolvedUrl: playbackUrl || probeResult.resolvedUrl,
+      playbackUrl: effectiveTarget.playbackUrl,
+      resolvedUrl: effectiveTarget.resolvedUrl,
       mediaType: probeResult.mediaType || resolution.mediaType,
       resolved: resolution.resolved,
-      proxied,
+      proxied: effectiveTarget.proxied,
       contentType: resolution.contentType,
       referer: resolution.referer,
     },

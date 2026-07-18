@@ -40,6 +40,7 @@ import {
   attachShortcutsOverlay,
 } from '@/lib/player/decoArtplayerTheme';
 import { isLikelyHlsUrl } from '@/lib/player/hls-url';
+import { selectImmediatePlaybackUrl } from '@/lib/player/playback-source';
 import {
   comparePlaybackMetrics,
   hasMeasuredMediaThroughput,
@@ -1001,46 +1002,28 @@ function PlayPageClient() {
         };
       }
 
-      const isInternalUrl = (() => {
-        try {
-          const parsed = new URL(
-            trimmedUrl,
-            typeof window !== 'undefined'
-              ? window.location.origin
-              : 'http://localhost',
-          );
-          return (
-            parsed.pathname.startsWith('/api/private-library/') ||
-            parsed.pathname.startsWith('/api/proxy/m3u8-filter') ||
-            parsed.pathname.startsWith('/api/proxy/m3u8-asset') ||
-            parsed.pathname.startsWith('/api/proxy/m3u8')
-          );
-        } catch {
-          return !/^https?:\/\//i.test(trimmedUrl);
-        }
-      })();
-
-      if (isInternalUrl || isPrivateLibrarySource(sourceKey || '')) {
+      const immediatePlayback = selectImmediatePlaybackUrl({
+        rawUrl: trimmedUrl,
+        sourceKey,
+        currentSourceKey: currentSourceRef.current,
+        cache: playbackUrlCacheRef.current,
+        origin:
+          typeof window !== 'undefined'
+            ? window.location.origin
+            : 'http://localhost',
+      });
+      if (immediatePlayback) {
         return {
-          playbackUrl: trimmedUrl,
-          resolvedUrl: trimmedUrl,
+          playbackUrl: immediatePlayback.url,
+          resolvedUrl: immediatePlayback.url,
           originalUrl: trimmedUrl,
-          mediaType: isLikelyHlsUrl(trimmedUrl) ? 'hls' : 'file',
-          resolved: false,
+          mediaType: isLikelyHlsUrl(immediatePlayback.url) ? 'hls' : 'file',
+          resolved:
+            immediatePlayback.fromCache && immediatePlayback.url !== trimmedUrl,
         };
       }
 
       const cacheKey = `${sourceKey || currentSourceRef.current || ''}|${trimmedUrl}`;
-      const cachedUrl = playbackUrlCacheRef.current.get(cacheKey);
-      if (cachedUrl) {
-        return {
-          playbackUrl: cachedUrl,
-          resolvedUrl: cachedUrl,
-          originalUrl: trimmedUrl,
-          mediaType: isLikelyHlsUrl(cachedUrl) ? 'hls' : 'file',
-          resolved: cachedUrl !== trimmedUrl,
-        };
-      }
 
       const params = new URLSearchParams();
       params.set('url', trimmedUrl);

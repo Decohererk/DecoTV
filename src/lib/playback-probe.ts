@@ -33,6 +33,19 @@ export interface PlaybackProbeResult {
   failureKind?: PlaybackProbeFailureKind;
 }
 
+export function selectEffectivePlaybackTarget(input: {
+  playbackUrl: string;
+  resolvedUrl?: string;
+  proxied: boolean;
+}): { playbackUrl: string; resolvedUrl: string; proxied: boolean } {
+  const playbackUrl = input.resolvedUrl?.trim() || input.playbackUrl;
+  return {
+    playbackUrl,
+    resolvedUrl: playbackUrl,
+    proxied: input.proxied && playbackUrl === input.playbackUrl,
+  };
+}
+
 interface ProbeFetchOptions {
   request: Request;
   timeoutMs: number;
@@ -59,6 +72,8 @@ const DEFAULT_UA =
 const MAX_REDIRECTS = 3;
 const PLAYLIST_MAX_BYTES = 2 * 1024 * 1024;
 const MEDIA_PROBE_BYTES = 384 * 1024;
+const PROXY_MANIFEST_PROBE_TIMEOUT_MS = 2000;
+const PROXY_SEGMENT_PROBE_TIMEOUT_MS = 1500;
 
 function qualityFromWidth(width: number): string {
   if (!width || width <= 0) return '未知';
@@ -158,6 +173,35 @@ function isRecoverableManifestStatus(status: number): boolean {
     status === 503 ||
     status === 504
   );
+}
+
+async function probeDirectHlsFallback(
+  proxyUrl: string,
+  options: ProbeFetchOptions,
+): Promise<PlaybackProbeResult | null> {
+  const fallbackTarget = unwrapSameOriginM3u8ProxyUrl(
+    proxyUrl,
+    options.request,
+  );
+  if (!fallbackTarget) return null;
+
+  try {
+    const directResult = await probeHlsPlaybackUrl(fallbackTarget.url, {
+      ...options,
+      referer: fallbackTarget.referer || options.referer,
+    });
+    if (directResult.status === 'failed' || directResult.playable === false) {
+      return null;
+    }
+
+    return {
+      ...directResult,
+      message: '代理清单异常，直连播放清单验证可用',
+      resolvedUrl: fallbackTarget.url,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function withRequestCookie(headers: Headers, request: Request) {
@@ -475,42 +519,60 @@ async function probeHlsPlaybackUrl(
   options: ProbeFetchOptions,
 ): Promise<PlaybackProbeResult> {
   const startedAt = Date.now();
-  const playlistInfo = await fetchProbeUrl(
+  const proxyFallbackTarget = unwrapSameOriginM3u8ProxyUrl(
     url,
-    {
-      cache: 'no-store',
-      headers: {
-        Accept:
-          'application/vnd.apple.mpegurl,application/x-mpegURL,text/plain,*/*;q=0.6',
-      },
-    },
-    options,
+    options.request,
   );
+  const manifestProbeOptions = proxyFallbackTarget
+    ? {
+        ...options,
+        timeoutMs: Math.min(options.timeoutMs, PROXY_MANIFEST_PROBE_TIMEOUT_MS),
+      }
+    : options;
+  let playlistInfo: ProbeFetchResponse;
+
+  try {
+    playlistInfo = await fetchProbeUrl(
+      url,
+      {
+        cache: 'no-store',
+        headers: {
+          Accept:
+            'application/vnd.apple.mpegurl,application/x-mpegURL,text/plain,*/*;q=0.6',
+        },
+      },
+      manifestProbeOptions,
+    );
+  } catch (error) {
+    if (proxyFallbackTarget) {
+      const directFallback = await probeDirectHlsFallback(url, {
+        ...options,
+        timeoutMs: Math.max(
+          1000,
+          options.timeoutMs - manifestProbeOptions.timeoutMs,
+        ),
+      });
+      if (directFallback) return directFallback;
+
+      return buildResult({
+        status: 'partial',
+        message: isAbortLikeError(error)
+          ? '代理清单响应超时，改用直连播放'
+          : '代理清单请求失败，改用直连播放',
+        failureKind: 'manifest',
+        playable: false,
+        resolvedUrl: proxyFallbackTarget.url,
+        mediaType: 'hls',
+      });
+    }
+    throw error;
+  }
 
   if (!playlistInfo.response.ok) {
     await playlistInfo.response.body?.cancel().catch(() => undefined);
-    const fallbackTarget = unwrapSameOriginM3u8ProxyUrl(url, options.request);
-    if (
-      fallbackTarget &&
-      isRecoverableManifestStatus(playlistInfo.response.status)
-    ) {
-      try {
-        const directResult = await probeHlsPlaybackUrl(fallbackTarget.url, {
-          ...options,
-          referer: fallbackTarget.referer || options.referer,
-        });
-
-        if (directResult.status !== 'failed') {
-          return {
-            ...directResult,
-            message:
-              directResult.message || '代理清单异常，直连播放清单验证可用',
-            resolvedUrl: fallbackTarget.url,
-          };
-        }
-      } catch {
-        // Fall through to a recoverable partial manifest result.
-      }
+    if (isRecoverableManifestStatus(playlistInfo.response.status)) {
+      const directFallback = await probeDirectHlsFallback(url, options);
+      if (directFallback) return directFallback;
     }
 
     if (isRecoverableManifestStatus(playlistInfo.response.status)) {
@@ -539,11 +601,10 @@ async function probeHlsPlaybackUrl(
     playlistInfo.response,
     PLAYLIST_MAX_BYTES,
   );
-  const contentType = playlistInfo.response.headers.get('content-type');
-  if (
-    !content.trimStart().startsWith('#EXTM3U') &&
-    !isLikelyHlsContentType(contentType)
-  ) {
+  if (!content.trimStart().startsWith('#EXTM3U')) {
+    const directFallback = await probeDirectHlsFallback(url, options);
+    if (directFallback) return directFallback;
+
     return buildResult({
       status: 'failed',
       message: '上游返回的不是 HLS 播放清单',
@@ -597,6 +658,9 @@ async function probeHlsPlaybackUrl(
   quality = quality !== '未知' ? quality : inspection.quality;
 
   if (!inspection.firstSegmentUrl) {
+    const directFallback = await probeDirectHlsFallback(url, options);
+    if (directFallback) return directFallback;
+
     return buildResult({
       status: 'partial',
       message: '播放清单可访问，未找到首个媒体分片',
@@ -610,9 +674,18 @@ async function probeHlsPlaybackUrl(
   }
 
   try {
+    const segmentProbeOptions = proxyFallbackTarget
+      ? {
+          ...options,
+          timeoutMs: Math.min(
+            options.timeoutMs,
+            PROXY_SEGMENT_PROBE_TIMEOUT_MS,
+          ),
+        }
+      : options;
     const segmentResult = await probeMediaBytes(
       inspection.firstSegmentUrl,
-      options,
+      segmentProbeOptions,
       'hls',
     );
 
@@ -627,6 +700,22 @@ async function probeHlsPlaybackUrl(
       };
     }
 
+    const directFallback = await probeDirectHlsFallback(url, options);
+    if (directFallback) return directFallback;
+
+    if (proxyFallbackTarget) {
+      return buildResult({
+        status: 'partial',
+        message: '代理首片段不可用，改用直连播放',
+        failureKind: 'fragment',
+        quality,
+        pingTime: playlistInfo.elapsedMs || segmentResult.pingTime,
+        playable: false,
+        resolvedUrl: proxyFallbackTarget.url,
+        mediaType: 'hls',
+      });
+    }
+
     return buildResult({
       status: 'partial',
       message: '播放清单可访问，首片段测速未完成',
@@ -638,6 +727,24 @@ async function probeHlsPlaybackUrl(
       mediaType: 'hls',
     });
   } catch (error) {
+    const directFallback = await probeDirectHlsFallback(url, options);
+    if (directFallback) return directFallback;
+
+    if (proxyFallbackTarget) {
+      return buildResult({
+        status: 'partial',
+        message: isAbortLikeError(error)
+          ? '代理首片段响应超时，改用直连播放'
+          : '代理首片段请求失败，改用直连播放',
+        failureKind: 'fragment',
+        quality,
+        pingTime: playlistInfo.elapsedMs,
+        playable: false,
+        resolvedUrl: proxyFallbackTarget.url,
+        mediaType: 'hls',
+      });
+    }
+
     return buildResult({
       status: 'partial',
       message: isAbortLikeError(error)
