@@ -346,7 +346,7 @@ async function fetchUpstreamWithFallback(
 }
 
 export async function GET(request: NextRequest) {
-  const authResult = verifyApiAuth(request);
+  const authResult = await verifyApiAuth(request);
   if (!authResult.isValid) {
     return buildError(401, 'Unauthorized');
   }

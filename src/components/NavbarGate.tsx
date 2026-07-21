@@ -3,8 +3,6 @@
 import { usePathname } from 'next/navigation';
 import React, { useEffect, useState } from 'react';
 
-import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
-
 export default function NavbarGate({
   children,
 }: {
@@ -20,10 +18,13 @@ export default function NavbarGate({
   // Keep the first client render aligned with the streamed SSR shell.
   if (!mounted) return null;
 
-  // Hide the navbar on unauthenticated login/register pages.
+  // Always hide the navbar on the login/register screens. These are
+  // standalone auth pages; the login page redirects away once a valid
+  // session exists, so keying navbar visibility on a readable auth cookie
+  // only surfaced a "logged in" navbar on the login page when a stale
+  // cookie lingered after an upgrade.
   if (pathname === '/login' || pathname === '/register') {
-    const auth = getAuthInfoFromBrowserCookie();
-    if (!auth) return null;
+    return null;
   }
 
   return <>{children}</>;

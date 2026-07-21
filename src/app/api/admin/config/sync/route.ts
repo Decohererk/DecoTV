@@ -14,7 +14,7 @@ import { verifyApiAuth } from '@/lib/auth';
  */
 export async function POST(request: NextRequest) {
   // 验证用户权限
-  const authResult = verifyApiAuth(request);
+  const authResult = await verifyApiAuth(request);
 
   // 只在本地模式下允许同步
   if (!authResult.isLocalMode) {

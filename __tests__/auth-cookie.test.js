@@ -2,6 +2,7 @@
 
 const {
   getAuthCookieClearOptions,
+  getAuthMetaCookieOptions,
   getAuthCookieOptions,
 } = require('../src/lib/auth-cookie');
 const {
@@ -120,6 +121,16 @@ describe('auth cookie options', () => {
   it('sets HTTP IP cookies without Secure and never uses SameSite=None', () => {
     const request = requestLike('http://192.168.1.20:3334/api/login');
     const options = getAuthCookieOptions(request, new Date('2026-01-01'));
+
+    expect(options.secure).toBe(false);
+    expect(options.sameSite).toBe('lax');
+    expect(options.httpOnly).toBe(true);
+    expect(options.path).toBe('/');
+  });
+
+  it('keeps only the non-sensitive auth meta cookie readable by the browser', () => {
+    const request = requestLike('http://192.168.1.20:3334/api/login');
+    const options = getAuthMetaCookieOptions(request, new Date('2026-01-01'));
 
     expect(options.secure).toBe(false);
     expect(options.sameSite).toBe('lax');

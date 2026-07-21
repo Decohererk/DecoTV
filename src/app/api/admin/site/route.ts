@@ -10,7 +10,7 @@ export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {
   // 🔐 使用统一认证函数，正确处理 localstorage 和数据库模式的差异
-  const authResult = verifyApiAuth(request);
+  const authResult = await verifyApiAuth(request);
 
   try {
     const body = await request.json();

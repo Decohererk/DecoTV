@@ -12,7 +12,7 @@ export const runtime = 'nodejs';
 async function resolveUsername(
   request: NextRequest,
 ): Promise<{ username: string } | NextResponse> {
-  const authResult = verifyApiAuth(request);
+  const authResult = await verifyApiAuth(request);
   if (!authResult.isValid) {
     return NextResponse.json({ error: '未登录' }, { status: 401 });
   }

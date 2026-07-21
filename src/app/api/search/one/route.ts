@@ -17,7 +17,7 @@ export const runtime = 'nodejs';
 // OrionTV 兼容接口
 export async function GET(request: NextRequest) {
   // 使用统一的认证函数，支持本地模式和数据库模式
-  const authResult = verifyApiAuth(request);
+  const authResult = await verifyApiAuth(request);
   if (!authResult.isValid) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

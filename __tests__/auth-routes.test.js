@@ -47,6 +47,7 @@ const originalEnv = {
   PUBLIC_ALLOW_ADMIN: process.env.PUBLIC_ALLOW_ADMIN,
   USERNAME: process.env.USERNAME,
   PASSWORD: process.env.PASSWORD,
+  LOGIN_RATE_LIMIT: process.env.LOGIN_RATE_LIMIT,
 };
 
 let mockDb;
@@ -287,6 +288,93 @@ describe('auth login and logout routes', () => {
     expect(protectedResponse.headers.get('location')).toContain(
       '/login?redirect=%2F',
     );
+  });
+
+  it('rate limits repeated failed logins when LOGIN_RATE_LIMIT is enabled', async () => {
+    process.env.LOGIN_RATE_LIMIT = 'true';
+    const route = loadLoginRoute('kvrocks');
+    const attempt = (password) =>
+      route.POST(
+        createRequest('http://127.0.0.1:3000/api/login', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            host: '127.0.0.1:3000',
+            'x-forwarded-for': '203.0.113.9',
+          },
+          body: JSON.stringify({ username: 'admin', password }),
+        }),
+      );
+
+    for (let i = 0; i < 5; i++) {
+      expect((await attempt('wrong_password')).status).toBe(401);
+    }
+
+    const limited = await attempt('wrong_password');
+    expect(limited.status).toBe(429);
+    expect(Number(limited.headers.get('retry-after'))).toBeGreaterThan(0);
+
+    // Even the correct password is throttled while the account is limited.
+    const blockedLogin = await attempt('test_password');
+    expect(blockedLogin.status).toBe(429);
+  });
+
+  it('rejects auth cookies whose signed expiry has passed', async () => {
+    const response = await login({
+      storageType: 'kvrocks',
+      url: 'http://127.0.0.1:3000/api/login',
+      body: { username: 'admin', password: 'test_password' },
+    });
+    expect(response.status).toBe(200);
+
+    const cookieValue = decodeURIComponent(
+      getCookieHeader(response).replace(/^auth=/, ''),
+    );
+    const authData = JSON.parse(decodeURIComponent(cookieValue));
+    expect(typeof authData.iat).toBe('number');
+    expect(typeof authData.exp).toBe('number');
+    expect(authData.exp).toBeGreaterThan(authData.iat);
+
+    // Extending exp without re-signing must not extend the session.
+    const forged = {
+      ...authData,
+      exp: authData.exp + 365 * 24 * 60 * 60 * 1000,
+    };
+
+    const { proxy } = loadProxy();
+    const forgedResponse = await proxy(
+      createRequest('http://127.0.0.1:3000/', {
+        headers: {
+          cookie: `auth=${encodeURIComponent(JSON.stringify(forged))}`,
+        },
+      }),
+    );
+
+    expect(forgedResponse.status).toBe(307);
+    expect(forgedResponse.headers.get('location')).toContain('/login');
+  });
+
+  it('rejects legacy cookies signed without iat/exp', async () => {
+    const { proxy } = loadProxy();
+
+    // Shape of cookies issued by older builds: signature over username:role.
+    const legacy = {
+      username: 'admin',
+      role: 'owner',
+      signature: 'a'.repeat(64),
+      timestamp: Date.now(),
+    };
+
+    const legacyResponse = await proxy(
+      createRequest('http://127.0.0.1:3000/', {
+        headers: {
+          cookie: `auth=${encodeURIComponent(JSON.stringify(legacy))}`,
+        },
+      }),
+    );
+
+    expect(legacyResponse.status).toBe(307);
+    expect(legacyResponse.headers.get('location')).toContain('/login');
   });
 
   it('does not emit wildcard CORS with credentials for login', async () => {

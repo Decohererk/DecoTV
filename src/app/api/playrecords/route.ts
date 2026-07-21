@@ -34,7 +34,7 @@ function isPublicPlayRecordKey(key: string): boolean {
 async function resolveAuthorizedUsername(
   request: NextRequest,
 ): Promise<{ username: string } | NextResponse> {
-  const authResult = verifyApiAuth(request);
+  const authResult = await verifyApiAuth(request);
   if (!authResult.isValid) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

@@ -54,7 +54,7 @@ function normalizePreset(preset: unknown): SkipPreset | null {
 async function ensureAuthorized(
   request: NextRequest,
 ): Promise<{ username: string } | { error: NextResponse }> {
-  const authResult = verifyApiAuth(request);
+  const authResult = await verifyApiAuth(request);
   if (!authResult.isValid) {
     return {
       error: NextResponse.json({ error: '未登录' }, { status: 401 }),

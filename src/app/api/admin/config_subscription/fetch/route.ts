@@ -9,7 +9,7 @@ export const runtime = 'nodejs';
 export async function POST(request: NextRequest) {
   try {
     // 🔐 使用统一认证函数
-    const authResult = verifyApiAuth(request);
+    const authResult = await verifyApiAuth(request);
 
     // 认证失败
     if (!authResult.isValid && !authResult.isLocalMode) {

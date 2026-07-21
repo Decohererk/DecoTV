@@ -1,4 +1,4 @@
-﻿/* eslint-disable no-console */
+/* eslint-disable no-console */
 
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -119,7 +119,7 @@ function buildDanmuConfig(payload: DanmuConfigPayload): DanmuConfig {
 }
 
 export async function POST(request: NextRequest) {
-  const authResult = verifyApiAuth(request);
+  const authResult = await verifyApiAuth(request);
 
   try {
     const body = (await request.json()) as DanmuConfigPayload;

@@ -10,7 +10,7 @@ import { normalizePrivateLibraryConfig } from '@/lib/private-library-config';
 export const runtime = 'nodejs';
 
 async function ensureAdmin(request: NextRequest) {
-  const authResult = verifyApiAuth(request);
+  const authResult = await verifyApiAuth(request);
   if (!authResult.isLocalMode && !authResult.isValid) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

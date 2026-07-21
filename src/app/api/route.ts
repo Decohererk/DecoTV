@@ -2,7 +2,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
-import { getAuthInfoFromCookie } from '@/lib/auth';
+import { verifyApiAuth } from '@/lib/auth';
 import { getConfig } from '@/lib/config';
 import { CURRENT_VERSION } from '@/lib/version';
 import {
@@ -17,7 +17,7 @@ export const runtime = 'nodejs';
 export async function GET(request: NextRequest) {
   console.log('Root API called:', request.url);
 
-  const authInfo = getAuthInfoFromCookie(request);
+  const authResult = await verifyApiAuth(request);
   const { searchParams } = new URL(request.url);
   const config = await getConfig();
 
@@ -46,8 +46,8 @@ export async function GET(request: NextRequest) {
       version: CURRENT_VERSION,
       siteName: config.SiteConfig.SiteName,
       status: 'online',
-      user: authInfo?.username || 'guest',
-      authenticated: !!authInfo,
+      user: authResult.isValid ? authResult.username || 'guest' : 'guest',
+      authenticated: authResult.isValid,
       adultFilterEnabled,
       contentMode: adultFilterEnabled ? 'family' : 'adult',
       minResolution: resolutionFilter.minLevel
@@ -55,7 +55,9 @@ export async function GET(request: NextRequest) {
         : '',
       resolutionFilterStrict: resolutionFilter.strict,
       storageType: process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage',
-      message: authInfo ? '服务器运行正常' : '服务器运行正常，请先登录',
+      message: authResult.isValid
+        ? '服务器运行正常'
+        : '服务器运行正常，请先登录',
     },
     {
       headers: {

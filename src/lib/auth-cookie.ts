@@ -3,13 +3,14 @@ import type { NextRequest } from 'next/server';
 import { isSecureRequest } from './request-protocol';
 
 export const AUTH_COOKIE_NAME = 'auth';
+export const AUTH_META_COOKIE_NAME = 'auth_meta';
 export const AUTH_COOKIE_DAYS = 30;
 
 export interface AuthCookieOptions {
   path: '/';
   expires: Date;
   sameSite: 'lax';
-  httpOnly: false;
+  httpOnly: boolean;
   secure: boolean;
   maxAge?: number;
 }
@@ -30,9 +31,18 @@ export function getAuthCookieOptions(
     // DecoTV login is same-origin; Lax works for HTTP LAN, localhost and HTTPS
     // without creating the invalid SameSite=None + Secure=false pair.
     sameSite: 'lax',
-    // Existing client UI reads the auth role from document.cookie.
-    httpOnly: false,
+    httpOnly: true,
     secure: isSecureRequest(request),
+  };
+}
+
+export function getAuthMetaCookieOptions(
+  request: Pick<NextRequest, 'headers' | 'nextUrl'>,
+  expires = getAuthCookieExpires(),
+): AuthCookieOptions {
+  return {
+    ...getAuthCookieOptions(request, expires),
+    httpOnly: false,
   };
 }
 

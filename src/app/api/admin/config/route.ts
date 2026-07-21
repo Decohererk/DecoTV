@@ -15,7 +15,7 @@ interface AdminConfigResultWithMode extends AdminConfigResult {
 
 export async function GET(request: NextRequest) {
   // 🔐 使用统一认证函数，正确处理 localstorage 和数据库模式的差异
-  const authResult = verifyApiAuth(request);
+  const authResult = await verifyApiAuth(request);
 
   // 本地存储模式（无数据库）：免登录访问
   // 这解决了"鸡生蛋"问题：用户需要先进入面板配置系统

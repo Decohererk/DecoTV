@@ -314,7 +314,7 @@ export async function OPTIONS() {
 }
 
 export async function GET(request: NextRequest) {
-  const authResult = verifyApiAuth(request);
+  const authResult = await verifyApiAuth(request);
   if (!authResult.isValid) {
     return NextResponse.json(
       { error: 'Unauthorized' },
@@ -355,7 +355,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const authResult = verifyApiAuth(request);
+  const authResult = await verifyApiAuth(request);
   if (!authResult.isValid) {
     return NextResponse.json(
       { error: 'Unauthorized' },

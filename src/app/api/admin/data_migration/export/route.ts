@@ -48,7 +48,7 @@ async function getUserPassword(username: string): Promise<string | null> {
 
 export async function POST(req: NextRequest) {
   try {
-    const authResult = verifyApiAuth(req);
+    const authResult = await verifyApiAuth(req);
 
     if (authResult.isLocalMode) {
       return NextResponse.json(

@@ -24,7 +24,7 @@ function buildPanSouConfig(payload: PanSouConfigPayload): PanSouConfig {
 }
 
 export async function POST(request: NextRequest) {
-  const authResult = verifyApiAuth(request);
+  const authResult = await verifyApiAuth(request);
 
   if (!authResult.isLocalMode && !authResult.isValid) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

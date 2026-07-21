@@ -13,7 +13,7 @@ import { isLikelyHlsUrl } from '@/lib/player/hls-url';
 export const runtime = 'nodejs';
 
 export async function GET(request: NextRequest) {
-  const authResult = verifyApiAuth(request);
+  const authResult = await verifyApiAuth(request);
   if (!authResult.isValid) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

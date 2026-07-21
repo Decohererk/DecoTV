@@ -13,7 +13,7 @@ export const runtime = 'nodejs';
 async function validateAndGetUsername(
   request: NextRequest,
 ): Promise<{ username: string } | { error: string; status: number }> {
-  const authResult = verifyApiAuth(request);
+  const authResult = await verifyApiAuth(request);
   if (!authResult.isValid) {
     return { error: 'Unauthorized', status: 401 };
   }

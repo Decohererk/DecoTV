@@ -14,7 +14,7 @@ const HISTORY_LIMIT = 20;
 async function resolveUsername(
   request: NextRequest,
 ): Promise<{ username: string } | NextResponse> {
-  const authResult = verifyApiAuth(request);
+  const authResult = await verifyApiAuth(request);
   if (!authResult.isValid) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

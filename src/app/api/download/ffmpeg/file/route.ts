@@ -14,7 +14,7 @@ function unauthorized() {
 }
 
 export async function GET(request: NextRequest) {
-  const authResult = verifyApiAuth(request);
+  const authResult = await verifyApiAuth(request);
   if (!authResult.isValid) {
     return unauthorized();
   }

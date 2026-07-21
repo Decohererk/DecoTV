@@ -346,7 +346,7 @@ async function restoreSnapshot(snapshot: DataSnapshot): Promise<void> {
 
 export async function POST(req: NextRequest) {
   try {
-    const authResult = verifyApiAuth(req);
+    const authResult = await verifyApiAuth(req);
 
     if (authResult.isLocalMode) {
       return NextResponse.json(

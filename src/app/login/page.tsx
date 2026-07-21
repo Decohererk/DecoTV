@@ -227,8 +227,21 @@ function LoginPageClient() {
       if (res.ok) {
         const redirect = getSafeRedirectPath(searchParams.get('redirect'));
         router.replace(redirect);
+      } else if (res.status === 429) {
+        // Rate limited: surface the wait rather than a misleading password error.
+        const retryAfter = Number(res.headers.get('retry-after'));
+        const data = await res.json().catch(() => ({}));
+        setError(
+          data.error ||
+            (Number.isFinite(retryAfter) && retryAfter > 0
+              ? `登录尝试过于频繁，请约 ${Math.ceil(retryAfter / 60)} 分钟后再试`
+              : '登录尝试过于频繁，请稍后再试'),
+        );
       } else if (res.status === 401) {
-        setError('密码错误');
+        const data = await res.json().catch(() => ({}));
+        // Prefer the server's specific reason (banned user, wrong username,
+        // etc.) instead of always claiming the password is wrong.
+        setError(data.error || '用户名或密码错误');
       } else {
         const data = await res.json().catch(() => ({}));
         setError(data.error ?? '服务器错误');

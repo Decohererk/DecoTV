@@ -9,6 +9,7 @@
  */
 
 import { AdminConfig } from './admin.types';
+import { normalizePasswordForStorage, verifyStoredPassword } from './password';
 import {
   Favorite,
   IStorage,
@@ -113,13 +114,17 @@ export class MemoryStorage implements IStorage {
     if (this.users.has(userName)) {
       throw new Error('用户已存在');
     }
-    this.users.set(userName, password);
+    this.users.set(userName, await normalizePasswordForStorage(password));
   }
 
   async verifyUser(userName: string, password: string): Promise<boolean> {
     const storedPassword = this.users.get(userName);
     if (!storedPassword) return false;
-    return storedPassword === password;
+    const result = await verifyStoredPassword(storedPassword, password);
+    if (result.valid && result.needsRehash) {
+      this.users.set(userName, await normalizePasswordForStorage(password));
+    }
+    return result.valid;
   }
 
   async checkUserExist(userName: string): Promise<boolean> {
@@ -130,7 +135,7 @@ export class MemoryStorage implements IStorage {
     if (!this.users.has(userName)) {
       throw new Error('用户不存在');
     }
-    this.users.set(userName, newPassword);
+    this.users.set(userName, await normalizePasswordForStorage(newPassword));
   }
 
   async deleteUser(userName: string): Promise<void> {

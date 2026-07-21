@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 
 import { isPublicAdminAllowed, isPublicMode } from './auth-mode';
+import { verifyAuthToken } from './auth-signature';
 
 // 单例缓存，避免重复打印警告
 let cachedSecret: string | null | undefined;
@@ -33,7 +34,10 @@ export function getAuthSecret(): string | null {
 export function getAuthInfoFromCookie(request: NextRequest): {
   password?: string;
   username?: string;
+  role?: 'owner' | 'admin' | 'user' | 'guest';
   signature?: string;
+  iat?: number;
+  exp?: number;
   timestamp?: number;
 } | null {
   const authCookie = request.cookies.get('auth');
@@ -83,7 +87,7 @@ export function getAuthInfoFromBrowserCookie(): {
       {} as Record<string, string>,
     );
 
-    const authCookie = cookies['auth'];
+    const authCookie = cookies['auth_meta'] || cookies['auth'];
     if (!authCookie) {
       return null;
     }
@@ -110,13 +114,13 @@ export function getAuthInfoFromBrowserCookie(): {
  * @param request NextRequest 对象
  * @returns 验证结果，包含是否通过、用户名（可选）、角色、是否为站长
  */
-export function verifyApiAuth(request: NextRequest): {
+export async function verifyApiAuth(request: NextRequest): Promise<{
   isValid: boolean;
   username?: string;
   role?: 'owner' | 'admin' | 'user' | 'guest';
   isOwner: boolean;
   isLocalMode: boolean;
-} {
+}> {
   const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
   const hasRedis = !!(process.env.REDIS_URL || process.env.KV_REST_API_URL);
   const isLocalMode = storageType === 'localstorage' && !hasRedis;
@@ -139,13 +143,25 @@ export function verifyApiAuth(request: NextRequest): {
       // public 模式默认不授予后台权限，继续走原密码/签名校验。
     } else {
       // public 前台 API 使用固定 guest 命名空间，避免写入站长账户。
+      let verifiedUsername: string | undefined;
+      let verifiedRole: 'owner' | 'admin' | 'user' | 'guest' = 'guest';
+
+      if (
+        authInfo?.username &&
+        authInfo.signature &&
+        (await verifyAuthToken(authInfo))
+      ) {
+        verifiedUsername = authInfo.username;
+        verifiedRole =
+          (authInfo as { role?: 'owner' | 'admin' | 'user' | 'guest' }).role ||
+          'user';
+      }
+
       return {
         isValid: true,
-        username: authInfo?.username || '__public_guest__',
-        role:
-          (authInfo as { role?: 'owner' | 'admin' | 'user' | 'guest' } | null)
-            ?.role || 'guest',
-        isOwner: false,
+        username: verifiedUsername || '__public_guest__',
+        role: verifiedRole,
+        isOwner: verifiedUsername === process.env.USERNAME,
         isLocalMode,
       };
     }
@@ -163,9 +179,16 @@ export function verifyApiAuth(request: NextRequest): {
     if (!envPassword) {
       return { isValid: true, role: 'owner', isOwner: true, isLocalMode };
     }
-    // 验证密码
-    if (authInfo.password && authInfo.password === envPassword) {
-      return { isValid: true, role: 'owner', isOwner: true, isLocalMode };
+    // 验证签名（含过期时间）
+    if (authInfo.username && authInfo.signature) {
+      const isValid = await verifyAuthToken(authInfo);
+      return {
+        isValid,
+        username: isValid ? authInfo.username : undefined,
+        role: isValid ? 'owner' : undefined,
+        isOwner: isValid,
+        isLocalMode,
+      };
     }
     return { isValid: false, isOwner: false, isLocalMode };
   }
@@ -176,6 +199,11 @@ export function verifyApiAuth(request: NextRequest): {
   }
 
   // 判断是否为站长
+  const validSignature = await verifyAuthToken(authInfo);
+  if (!validSignature) {
+    return { isValid: false, isOwner: false, isLocalMode };
+  }
+
   const isOwner = authInfo.username === process.env.USERNAME;
 
   return {

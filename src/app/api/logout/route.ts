@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { AUTH_COOKIE_NAME, getAuthCookieClearOptions } from '@/lib/auth-cookie';
+import {
+  AUTH_COOKIE_NAME,
+  AUTH_META_COOKIE_NAME,
+  getAuthCookieClearOptions,
+} from '@/lib/auth-cookie';
 
 export const runtime = 'nodejs';
 
@@ -9,6 +13,11 @@ export async function POST(request: NextRequest) {
 
   response.cookies.set(
     AUTH_COOKIE_NAME,
+    '',
+    getAuthCookieClearOptions(request),
+  );
+  response.cookies.set(
+    AUTH_META_COOKIE_NAME,
     '',
     getAuthCookieClearOptions(request),
   );
