@@ -3,6 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getConfig } from '@/lib/config';
+import { fetchWithValidatedRedirects } from '@/lib/proxy-security';
 
 export const runtime = 'nodejs';
 
@@ -143,21 +144,27 @@ export async function GET(request: NextRequest) {
     );
     requestHeaders.set('Origin', `${targetUrl.protocol}//${targetUrl.host}`);
 
-    let response = await fetch(decodedUrl, {
-      cache: 'no-cache',
-      redirect: 'follow',
-      headers: {
-        ...Object.fromEntries(requestHeaders.entries()),
-        Range: 'bytes=0-2047',
+    let response = await fetchWithValidatedRedirects(
+      decodedUrl,
+      {
+        cache: 'no-cache',
+        headers: {
+          ...Object.fromEntries(requestHeaders.entries()),
+          Range: 'bytes=0-2047',
+        },
       },
-    });
+      { timeoutMs: 10000 },
+    );
 
     if (response.status === 416) {
-      response = await fetch(decodedUrl, {
-        cache: 'no-cache',
-        redirect: 'follow',
-        headers: requestHeaders,
-      });
+      response = await fetchWithValidatedRedirects(
+        decodedUrl,
+        {
+          cache: 'no-cache',
+          headers: requestHeaders,
+        },
+        { timeoutMs: 10000 },
+      );
     }
 
     if (!response.ok && response.status !== 206) {

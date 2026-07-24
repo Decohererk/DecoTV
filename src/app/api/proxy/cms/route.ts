@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { resolveAdultFilter } from '@/lib/adult-filter';
 import { getConfig } from '@/lib/config';
+import { fetchWithValidatedRedirects } from '@/lib/proxy-security';
 
 export const runtime = 'nodejs';
 export const fetchCache = 'force-no-store';
@@ -211,65 +212,59 @@ export async function GET(request: NextRequest) {
       headers.Origin = origin;
     }
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 20_000);
-
-    try {
-      const response = await fetch(decodedUrl, {
+    const response = await fetchWithValidatedRedirects(
+      decodedUrl,
+      {
         method: 'GET',
         headers,
-        signal: controller.signal,
         cache: 'no-store',
+      },
+      { timeoutMs: 20_000 },
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      console.error(
+        '[CMS Proxy] ❌ Upstream error:',
+        response.status,
+        errorText.substring(0, 200),
+      );
+      return NextResponse.json(
+        {
+          error: `Upstream server responded with ${response.status}`,
+          code: 'UPSTREAM_ERROR',
+          status: response.status,
+          target: decodedUrl,
+        },
+        {
+          status: 502,
+          headers: corsHeaders(),
+        },
+      );
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    const text = await response.text();
+    const elapsed = Date.now() - startTime;
+
+    try {
+      const cleanText = text.trim().replace(/^\uFEFF/, '');
+      const data = JSON.parse(cleanText);
+      return NextResponse.json(data, {
+        headers: {
+          ...corsHeaders(),
+          'X-Proxy-Time': `${elapsed}ms`,
+        },
       });
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => '');
-        console.error(
-          '[CMS Proxy] ❌ Upstream error:',
-          response.status,
-          errorText.substring(0, 200),
-        );
-        return NextResponse.json(
-          {
-            error: `Upstream server responded with ${response.status}`,
-            code: 'UPSTREAM_ERROR',
-            status: response.status,
-            target: decodedUrl,
-          },
-          {
-            status: 502,
-            headers: corsHeaders(),
-          },
-        );
-      }
-
-      const contentType = response.headers.get('content-type') || '';
-      const text = await response.text();
-      const elapsed = Date.now() - startTime;
-
-      try {
-        const cleanText = text.trim().replace(/^\uFEFF/, '');
-        const data = JSON.parse(cleanText);
-        return NextResponse.json(data, {
-          headers: {
-            ...corsHeaders(),
-            'X-Proxy-Time': `${elapsed}ms`,
-          },
-        });
-      } catch {
-        return new NextResponse(text, {
-          status: 200,
-          headers: {
-            'Content-Type': contentType || 'text/plain; charset=utf-8',
-            ...corsHeaders(),
-            'X-Proxy-Time': `${elapsed}ms`,
-          },
-        });
-      }
-    } catch (fetchError) {
-      clearTimeout(timeoutId);
-      throw fetchError;
+    } catch {
+      return new NextResponse(text, {
+        status: 200,
+        headers: {
+          'Content-Type': contentType || 'text/plain; charset=utf-8',
+          ...corsHeaders(),
+          'X-Proxy-Time': `${elapsed}ms`,
+        },
+      });
     }
   } catch (error) {
     const elapsed = Date.now() - startTime;

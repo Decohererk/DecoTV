@@ -3,6 +3,7 @@
 import { NextResponse } from 'next/server';
 
 import { getConfig } from '@/lib/config';
+import { fetchWithValidatedRedirects } from '@/lib/proxy-security';
 
 export const runtime = 'nodejs';
 
@@ -21,14 +22,17 @@ export async function GET(request: Request) {
 
   try {
     const decodedUrl = decodeURIComponent(imageUrl);
-    const imageResponse = await fetch(decodedUrl, {
-      cache: 'no-cache',
-      redirect: 'follow',
-      credentials: 'same-origin',
-      headers: {
-        'User-Agent': ua,
+    const imageResponse = await fetchWithValidatedRedirects(
+      decodedUrl,
+      {
+        cache: 'no-cache',
+        credentials: 'same-origin',
+        headers: {
+          'User-Agent': ua,
+        },
       },
-    });
+      { timeoutMs: 10000 },
+    );
 
     if (!imageResponse.ok) {
       return NextResponse.json(

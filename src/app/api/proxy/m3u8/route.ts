@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 
 import { getConfig } from '@/lib/config';
 import { getBaseUrl, resolveUrl } from '@/lib/live';
+import { fetchWithValidatedRedirects } from '@/lib/proxy-security';
 import { getEffectiveRequestOrigin } from '@/lib/request-protocol';
 
 export const runtime = 'nodejs';
@@ -108,13 +109,16 @@ export async function GET(request: Request) {
   try {
     const decodedUrl = decodeUpstreamUrl(url);
 
-    response = await fetch(decodedUrl, {
-      cache: 'no-cache',
-      redirect: 'follow',
-      headers: {
-        'User-Agent': ua,
+    response = await fetchWithValidatedRedirects(
+      decodedUrl,
+      {
+        cache: 'no-cache',
+        headers: {
+          'User-Agent': ua,
+        },
       },
-    });
+      { timeoutMs: 15000 },
+    );
 
     if (!response.ok) {
       return jsonError('Failed to fetch m3u8', response.status || 502);
