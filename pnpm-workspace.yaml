@@ -1,0 +1,7 @@
+packages:
+  - .
+
+overrides:
+  '@babel/core': ^7.29.1
+  postcss: ^8.5.10
+  undici: ^7.28.0
