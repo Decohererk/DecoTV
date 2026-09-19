@@ -32,6 +32,7 @@ import {
   ParsedM3U8Result,
   sanitizeFileName,
 } from '@/lib/download-types';
+import { unwrapProxyPlaylistUrl } from '@/lib/download-url';
 
 import type { DownloadManagerModalProps } from '@/components/DownloadManagerModal';
 
@@ -120,7 +121,7 @@ function resolveTargetUrl(sourceUrl: string): string {
 }
 
 function isM3U8Url(sourceUrl: string): boolean {
-  return /\.m3u8($|\?)/i.test(sourceUrl);
+  return /\.m3u8($|\?)/i.test(unwrapProxyPlaylistUrl(sourceUrl));
 }
 
 function delay(ms: number): Promise<void> {

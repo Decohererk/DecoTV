@@ -197,6 +197,22 @@ function buildFfmpegHttpInputArgs(
   if (cookie) headerLines.push(`Cookie: ${cookie}`);
 
   args.push('-headers', `${headerLines.join('\r\n')}\r\n`);
+
+  // Our m3u8-filter/m3u8-asset proxy re-wraps every playlist/segment URL as
+  // `/api/proxy/...?url=...&sig=...`, which has no recognizable media file
+  // extension of its own. FFmpeg's HLS demuxer rejects such nested playlist/
+  // segment URLs by default ("not in allowed_segment_extensions"), and even
+  // once that's lifted it separately refuses to open a segment whose probed
+  // container format doesn't match its (missing) URL extension, so all three
+  // checks must be relaxed together for proxied sources to download.
+  args.push(
+    '-allowed_extensions',
+    'ALL',
+    '-allowed_segment_extensions',
+    'ALL',
+    '-extension_picky',
+    '0',
+  );
   return args;
 }
 
