@@ -33,11 +33,31 @@ function extractOrigin(rawUrl: string | undefined): string | undefined {
   }
 }
 
-function isProxyPlaylistPath(pathname: string): boolean {
+export function isProxyPlaylistPath(pathname: string): boolean {
   return (
     pathname.endsWith('/api/proxy/m3u8-filter') ||
-    pathname.endsWith('/api/proxy/m3u8')
+    pathname.endsWith('/api/proxy/m3u8') ||
+    pathname.endsWith('/api/proxy/m3u8-asset')
   );
+}
+
+// Resolves a (possibly proxy-wrapped) playback URL back to the real upstream
+// URL. Playlist proxies (m3u8/m3u8-filter/m3u8-asset) carry the upstream URL
+// in their `url` query param; other URLs are returned unchanged.
+export function unwrapProxyPlaylistUrl(
+  rawUrl: string,
+  baseHref = getDefaultBaseHref(),
+): string {
+  try {
+    const parsed = new URL(rawUrl, baseHref);
+    if (isProxyPlaylistPath(parsed.pathname)) {
+      const upstreamUrl = parseHttpUrl(parsed.searchParams.get('url'));
+      if (upstreamUrl) return upstreamUrl;
+    }
+    return parsed.toString();
+  } catch {
+    return rawUrl;
+  }
 }
 
 export function normalizeDownloadSource(
