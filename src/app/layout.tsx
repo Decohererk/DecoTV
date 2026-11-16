@@ -18,6 +18,7 @@ import ParticleBackground from '../components/ParticleBackground';
 import { SiteProvider } from '../components/SiteProvider';
 import { ThemeProvider } from '../components/ThemeProvider';
 import TopNavbar from '../components/TopNavbar';
+import TraditionalChineseUI from '../components/TraditionalChineseUI';
 
 const inter = Inter({ subsets: ['latin'] });
 export const dynamic = 'force-dynamic';
@@ -116,7 +117,7 @@ export default async function RootLayout({
   };
 
   return (
-    <html lang='zh-CN' suppressHydrationWarning>
+    <html lang='zh-TW' suppressHydrationWarning>
       <head>
         <meta
           name='viewport'
@@ -133,6 +134,7 @@ export default async function RootLayout({
       <body
         className={`${inter.className} min-h-screen bg-white text-gray-900 dark:bg-black dark:text-gray-200 bg-animated-gradient`}
       >
+        <TraditionalChineseUI />
         {/* 顶部进度条：点击链接瞬间显示，消除"死机感" */}
         <NextTopLoader
           color='#ec4899'
